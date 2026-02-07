@@ -1,93 +1,111 @@
 
 
-# Social Arbitrage Trend Scanner — Full MVP Plan
+# Automated 5-Minute Scan with 1-Hour Keyword Rotation
 
-## Overview
-A web app that simulates scanning TikTok for consumer/product trends, scores them, maps them to public companies using AI, and presents everything in a fast, data-dense dashboard for triage. Built with Lovable Cloud (Supabase backend) + Lovable AI.
+## What Changes
+
+Right now scanning is manual (button click). This plan adds a fully automated background scan that runs every 5 minutes, with each keyword getting 12 consecutive cycles (1 hour) before rotating to the next one.
+
+### Rotation Logic
+
+With 6 default keywords, a full rotation cycle looks like this:
+
+```text
+Keyword 1: "restock alert"        -> 12 scans (1 hour)
+Keyword 2: "tiktok made me buy"   -> 12 scans (1 hour)
+Keyword 3: "back in stock"        -> 12 scans (1 hour)
+Keyword 4: "run don't walk"       -> 12 scans (1 hour)
+Keyword 5: "sold out everywhere"  -> 12 scans (1 hour)
+Keyword 6: "limited drop"         -> 12 scans (1 hour)
+                                   = 6 hours total, then repeats
+```
 
 ---
 
-## 1. Authentication & User Setup
-- Email + password login/signup with Supabase Auth
-- User profile with timezone and notification preferences
-- Disclaimer banner: "For research/education only. Not financial advice."
+## Implementation Steps
 
-## 2. Database Schema
-Set up ~10 tables in Lovable Cloud:
-- **profiles** — timezone, notification prefs
-- **keywords** — rotating keyword list per user (default 6 preloaded)
-- **scans** — scan log (timestamp, keyword used, mode, status)
-- **videos** — simulated TikTok video data (video ID, URL, posted date, author, metrics, keyword)
-- **extracted_entities** — brand/product names extracted from videos with confidence
-- **trend_items** — aggregated trends with score (0–100), label (Low/Medium/High), summary
-- **trend_video_links** — many-to-many linking trends to source videos
-- **company_matches** — AI-suggested ticker/company mappings per trend
-- **user_actions** — save/ignore/shortlist/archive actions with notes & tags
-- **watchlist** — tracked brands and tickers per user
+### 1. Database: Add rotation tracking columns
 
-## 3. Simulated Data & Seed Engine
-- Pre-populate realistic mock TikTok video data across the default 6 keywords
-- Include varied brands (e.g., Stanley, CeraVe, Dyson, Starbucks, Crocs, etc.)
-- Simulate engagement metrics (likes, comments, shares) and posting dates
-- A "Run Scan" button that simulates a scan cycle: picks next keyword, generates new mock videos, runs entity extraction + scoring
+Add two columns to the `keywords` table to track which keyword is currently active and how many cycles it has completed:
 
-## 4. Dashboard Page
-- **Top KPI cards**: Trends detected (24h/7d), new brands found, mapped tickers, high-signal video count
-- **Latest Trend Feed** — sortable table/card view showing:
-  - Timestamp, keyword used, brand/product, confidence score badge (Low/Med/High)
-  - Video metrics (likes/comments/shares), posted date (freshness highlighted)
-  - Mapped company/ticker (if found)
-  - Quick actions: Save, Ignore, Add to Watchlist, Open video link
+- `is_current` (boolean, default false) -- marks the active keyword
+- `cycles_completed` (integer, default 0) -- counts scans done in current rotation (resets at 12)
 
-## 5. Trends / Ideas List Page
-- **Filters & sorting**: date range, keyword, confidence range, "mapped ticker only", "contains restock/sold out"
-- Each trend opens a **Trend Detail** panel/page:
-  - Extracted brands/products
-  - AI-generated 3–5 bullet "why trending" summary (via Lovable AI)
-  - Paraphrased user sentiment
-  - Suggested public company matches ranked by confidence (via Lovable AI)
-  - User notes + tags
-  - Status workflow: New → Reviewing → Shortlisted → Archived
+Also add a `scan_rotation_state` table (or use the profiles table) to track the current rotation globally per user.
 
-## 6. Trend Confidence Scoring (0–100)
-Automatically calculated based on:
-- **Freshness**: posted this week = big boost
-- **Signal phrases**: "sold out", "restock", "back in stock", "limited", "drop"
-- **Engagement velocity**: likes/comments ratio
-- **Repetition**: same brand across multiple videos in 24–72h
-- **Mapping quality**: confidently maps to a public company
-- Labels: Low (0–39), Medium (40–69), High (70–100)
+### 2. Backend Function: `scheduled-scan`
 
-## 7. AI-Powered Features (Lovable AI)
-- **Entity extraction**: Extract brand/product names from video captions
-- **Trend summarization**: Generate concise 60-word trend summaries
-- **Company matching**: Propose public company + ticker + reasoning
-- **Deduplication**: Merge similar brand spellings (e.g., "Starbucks tumbler" vs "Starbucks cold cup")
+Create a new backend function at `supabase/functions/scheduled-scan/index.ts` that:
 
-## 8. Watchlist Page
-- Add brands or tickers to watchlist
-- View all trends matching watchlist items
-- In-app toast notifications when a watchlist match is detected with high confidence
+1. Fetches all users with active keywords
+2. For each user:
+   - Finds the current active keyword (where `is_current = true`)
+   - If no keyword is current, picks the first one by sort order
+   - Runs the scan logic (generate mock videos, extract entities, score trends -- same as the existing `useScan` hook but server-side)
+   - Increments `cycles_completed` on the keyword
+   - If `cycles_completed >= 12`, resets it to 0, sets `is_current = false`, and moves `is_current = true` to the next keyword in sort order
+3. Logs the scan result
 
-## 9. Settings Page
-- **Keyword management**: Add/remove/reorder the rotating keyword list
-- **Scan frequency**: Configurable (default 5 min, simulated)
-- **Mode toggle**: "Uploaded this week" (default) vs "Popular videos"
-- **Thresholds**: Minimum likes/comments, minimum confidence score
-- **Notification preferences**: In-app alert settings for high-confidence trends
+### 3. Cron Job: Run every 5 minutes
 
-## 10. Digest Views & Export
-- **Daily Digest**: Top 10 high-confidence trends from last 24h
-- **Weekly Digest**: Top 25 trends + most repeated brands
-- **CSV Export**: Export filtered trends with all metadata
+Set up a database cron job using `pg_cron` + `pg_net` to call the backend function every 5 minutes:
 
-## 11. Design & UX
-- Modern, minimal, data-dense layout using sidebar navigation
-- Mobile-responsive design
-- Fast filtering and search with clear timestamps
-- Freshness indicators (color-coded: today, this week, older)
-- Clean card + table hybrid views for scanning lots of data quickly
+```text
+Schedule: */5 * * * * (every 5 minutes)
+Action: HTTP POST to the scheduled-scan function
+```
 
-## 12. Navigation Structure
-Sidebar with: Dashboard, Trends, Watchlist, Daily Digest, Weekly Digest, Settings
+### 4. Move scan logic to shared utility
+
+Extract the core scan logic (mock video generation, entity extraction, trend scoring, DB writes) from the frontend `useScan` hook into a shared pattern that the backend function can also use. The frontend "Run Scan" button will remain for manual triggering.
+
+### 5. Dashboard: Show scan status
+
+Update the Dashboard to display:
+- Current active keyword and its cycle count (e.g., "restock alert -- cycle 7/12")
+- Time until next auto-scan
+- Last scan timestamp
+- A visual indicator showing the scanner is running automatically
+
+### 6. Settings: Configurable rotation
+
+The Settings page already has a scan frequency slider. We'll connect it so:
+- Scan frequency controls the cron interval (stored in profile, used by the backend function)
+- Add a "cycles per keyword" setting (default 12) so users can adjust how long each keyword runs
+
+---
+
+## Technical Details
+
+### Backend Function (`scheduled-scan`)
+- Reads all users from `profiles` table
+- For each user, queries their active keywords ordered by `sort_order`
+- Performs the same mock data generation + scoring pipeline currently in `useScan.ts`
+- Uses the Supabase service role key (available in edge functions) to write data on behalf of users
+- Handles rotation: after 12 cycles on a keyword, advances to the next
+
+### Database Migration
+```sql
+-- Add rotation tracking to keywords
+ALTER TABLE keywords ADD COLUMN is_current boolean DEFAULT false;
+ALTER TABLE keywords ADD COLUMN cycles_completed integer DEFAULT 0;
+
+-- Enable pg_cron and pg_net extensions
+CREATE EXTENSION IF NOT EXISTS pg_cron;
+CREATE EXTENSION IF NOT EXISTS pg_net;
+```
+
+### Cron Setup (via SQL, not migration)
+```sql
+SELECT cron.schedule(
+  'scheduled-scan-every-5-min',
+  '*/5 * * * *',
+  $$ SELECT net.http_post(...) $$
+);
+```
+
+### Frontend Changes
+- `useScan.ts`: Keep for manual scans, but also add a query to show current rotation state
+- `Index.tsx` (Dashboard): Add a small "Scanner Status" card showing active keyword + cycle progress
+- `Settings.tsx`: Wire up the frequency slider and add cycles-per-keyword config
 
