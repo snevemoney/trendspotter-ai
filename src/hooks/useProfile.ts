@@ -35,6 +35,7 @@ export function useUpdateProfile() {
       scan_mode?: "recent" | "popular";
       min_likes?: number;
       min_comments?: number;
+      cycles_per_keyword?: number;
     }) => {
       if (!user) throw new Error("Not authenticated");
       const { error } = await supabase

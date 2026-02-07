@@ -103,7 +103,9 @@ export type Database = {
         Row: {
           active: boolean | null
           created_at: string
+          cycles_completed: number | null
           id: string
+          is_current: boolean | null
           keyword: string
           sort_order: number | null
           user_id: string
@@ -111,7 +113,9 @@ export type Database = {
         Insert: {
           active?: boolean | null
           created_at?: string
+          cycles_completed?: number | null
           id?: string
+          is_current?: boolean | null
           keyword: string
           sort_order?: number | null
           user_id: string
@@ -119,7 +123,9 @@ export type Database = {
         Update: {
           active?: boolean | null
           created_at?: string
+          cycles_completed?: number | null
           id?: string
+          is_current?: boolean | null
           keyword?: string
           sort_order?: number | null
           user_id?: string
@@ -129,6 +135,7 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          cycles_per_keyword: number | null
           id: string
           min_comments: number | null
           min_confidence_score: number | null
@@ -142,6 +149,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          cycles_per_keyword?: number | null
           id?: string
           min_comments?: number | null
           min_confidence_score?: number | null
@@ -155,6 +163,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          cycles_per_keyword?: number | null
           id?: string
           min_comments?: number | null
           min_confidence_score?: number | null
