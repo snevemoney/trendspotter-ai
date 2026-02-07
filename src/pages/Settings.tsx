@@ -158,6 +158,21 @@ export default function Settings() {
               />
             </div>
 
+            <div className="space-y-2">
+              <Label className="text-xs">
+                Cycles per keyword: {profile?.cycles_per_keyword || 12} (= {((profile?.cycles_per_keyword || 12) * (profile?.scan_frequency_minutes || 5))} min per keyword)
+              </Label>
+              <Slider
+                value={[profile?.cycles_per_keyword || 12]}
+                min={1}
+                max={30}
+                step={1}
+                onValueChange={([v]) =>
+                  updateProfile.mutate({ cycles_per_keyword: v })
+                }
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs">Min Likes</Label>

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { FreshnessIndicator } from "@/components/FreshnessIndicator";
+import { ScannerStatusCard } from "@/components/ScannerStatusCard";
 import { useDashboardStats, useTrends, useTrendAction } from "@/hooks/useTrends";
 import { useAddToWatchlist } from "@/hooks/useWatchlist";
 import { useScan } from "@/hooks/useScan";
@@ -97,30 +98,33 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KPICard
-            title="Trends (24h)"
-            value={stats?.trends24h ?? 0}
-            icon={TrendingUp}
-            subtitle={`${stats?.trends7d ?? 0} in 7d`}
-          />
-          <KPICard
-            title="Brands Found"
-            value={stats?.uniqueBrands ?? 0}
-            icon={Tag}
-          />
-          <KPICard
-            title="Mapped Tickers"
-            value={stats?.mappedTickers ?? 0}
-            icon={BarChart3}
-          />
-          <KPICard
-            title="High Signal"
-            value={stats?.highSignalCount ?? 0}
-            icon={Zap}
-            subtitle="Score ≥ 70"
-          />
+        {/* Scanner Status + KPI Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          <ScannerStatusCard />
+          <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPICard
+              title="Trends (24h)"
+              value={stats?.trends24h ?? 0}
+              icon={TrendingUp}
+              subtitle={`${stats?.trends7d ?? 0} in 7d`}
+            />
+            <KPICard
+              title="Brands Found"
+              value={stats?.uniqueBrands ?? 0}
+              icon={Tag}
+            />
+            <KPICard
+              title="Mapped Tickers"
+              value={stats?.mappedTickers ?? 0}
+              icon={BarChart3}
+            />
+            <KPICard
+              title="High Signal"
+              value={stats?.highSignalCount ?? 0}
+              icon={Zap}
+              subtitle="Score ≥ 70"
+            />
+          </div>
         </div>
 
         {/* Trend Feed */}
