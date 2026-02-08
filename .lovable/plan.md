@@ -1,111 +1,138 @@
 
 
-# Automated 5-Minute Scan with 1-Hour Keyword Rotation
+# AI Chat Feature -- Scan Intelligence Assistant
 
-## What Changes
+## What This Adds
 
-Right now scanning is manual (button click). This plan adds a fully automated background scan that runs every 5 minutes, with each keyword getting 12 consecutive cycles (1 hour) before rotating to the next one.
+An AI-powered chat interface, accessible from the sidebar, where you can interact with your scan data in real-time. Inspired by the OpenClaw reference screenshots, the chat will produce structured scan reports showing hot products, ticker signals, related searches, and rotation status -- all formatted with tables and sections like the examples you shared.
 
-### Rotation Logic
+---
 
-With 6 default keywords, a full rotation cycle looks like this:
+## How It Works
 
-```text
-Keyword 1: "restock alert"        -> 12 scans (1 hour)
-Keyword 2: "tiktok made me buy"   -> 12 scans (1 hour)
-Keyword 3: "back in stock"        -> 12 scans (1 hour)
-Keyword 4: "run don't walk"       -> 12 scans (1 hour)
-Keyword 5: "sold out everywhere"  -> 12 scans (1 hour)
-Keyword 6: "limited drop"         -> 12 scans (1 hour)
-                                   = 6 hours total, then repeats
-```
+### Chat Page (`/chat`)
+A new page with a conversational interface where you can:
+- Ask the AI to summarize the latest scan results
+- Request specific analysis ("show me high-signal brands from today")
+- Get formatted scan reports that mirror the OpenClaw style:
+  - Header with scan completion status and keyword rotation info
+  - "Hot Products Found" table with Product / Views / Signal columns
+  - "Ticker Signals" section listing mapped tickers with reasoning
+  - "Related Searches" showing cross-references
+  - Entry count and rotation status footer
+
+### AI Backend (Edge Function)
+A new backend function (`chat-assistant`) that:
+1. Receives user messages along with conversation history
+2. Queries the database for relevant scan data, trends, company matches, and keyword rotation state
+3. Sends everything to Lovable AI (using `google/gemini-2.5-flash`) with a system prompt that instructs it to format responses in the OpenClaw style
+4. Returns a markdown-formatted response rendered in the chat UI
+
+### Chat Message Persistence
+A new `chat_messages` table stores conversation history so you can revisit past sessions:
+- `id`, `user_id`, `role` (user/assistant), `content`, `created_at`
+- RLS policies so only your messages are visible
+
+---
+
+## UI Design
+
+The chat interface will be:
+- Clean, dark-themed, matching the existing app aesthetic
+- Message bubbles with markdown rendering (tables, bold, lists)
+- A text input bar at the bottom with Send button
+- Auto-scroll to latest message
+- Loading indicator while AI responds
+- Accessible from the sidebar as "AI Chat" with a message icon
 
 ---
 
 ## Implementation Steps
 
-### 1. Database: Add rotation tracking columns
+### 1. Database Migration
+Create a `chat_messages` table:
+- `id` (uuid, primary key)
+- `user_id` (uuid, references auth.users)
+- `role` (text: "user" or "assistant")
+- `content` (text)
+- `created_at` (timestamptz)
+- RLS policies for user-scoped read/write
 
-Add two columns to the `keywords` table to track which keyword is currently active and how many cycles it has completed:
+### 2. Backend Function: `chat-assistant`
+New edge function at `supabase/functions/chat-assistant/index.ts`:
+- Accepts POST with `{ message, conversationHistory }` 
+- Queries the user's latest data from the database:
+  - Recent scans (last scan details, keyword, rotation state)
+  - Top trending products (sorted by score)
+  - Company/ticker matches
+  - Keyword rotation state (current keyword, cycle progress)
+- Builds a system prompt that instructs the AI to:
+  - Format output like the OpenClaw examples (scan header, product table, ticker signals, related searches)
+  - Use markdown tables for structured data
+  - Include engagement metrics formatted as K/M
+  - Show rotation status when relevant
+- Calls Lovable AI (`google/gemini-2.5-flash`) with the context + conversation history
+- Returns the AI response
 
-- `is_current` (boolean, default false) -- marks the active keyword
-- `cycles_completed` (integer, default 0) -- counts scans done in current rotation (resets at 12)
+### 3. Frontend Components
 
-Also add a `scan_rotation_state` table (or use the profiles table) to track the current rotation globally per user.
+**New Files:**
+- `src/pages/Chat.tsx` -- Main chat page with message list and input
+- `src/hooks/useChat.ts` -- Hook for sending messages, loading history, managing state
+- `src/components/ChatMessage.tsx` -- Individual message component with markdown rendering
 
-### 2. Backend Function: `scheduled-scan`
+**Modified Files:**
+- `src/components/AppSidebar.tsx` -- Add "AI Chat" nav item
+- `src/App.tsx` -- Add `/chat` route
+- `supabase/config.toml` -- Register `chat-assistant` function
 
-Create a new backend function at `supabase/functions/scheduled-scan/index.ts` that:
-
-1. Fetches all users with active keywords
-2. For each user:
-   - Finds the current active keyword (where `is_current = true`)
-   - If no keyword is current, picks the first one by sort order
-   - Runs the scan logic (generate mock videos, extract entities, score trends -- same as the existing `useScan` hook but server-side)
-   - Increments `cycles_completed` on the keyword
-   - If `cycles_completed >= 12`, resets it to 0, sets `is_current = false`, and moves `is_current = true` to the next keyword in sort order
-3. Logs the scan result
-
-### 3. Cron Job: Run every 5 minutes
-
-Set up a database cron job using `pg_cron` + `pg_net` to call the backend function every 5 minutes:
-
-```text
-Schedule: */5 * * * * (every 5 minutes)
-Action: HTTP POST to the scheduled-scan function
-```
-
-### 4. Move scan logic to shared utility
-
-Extract the core scan logic (mock video generation, entity extraction, trend scoring, DB writes) from the frontend `useScan` hook into a shared pattern that the backend function can also use. The frontend "Run Scan" button will remain for manual triggering.
-
-### 5. Dashboard: Show scan status
-
-Update the Dashboard to display:
-- Current active keyword and its cycle count (e.g., "restock alert -- cycle 7/12")
-- Time until next auto-scan
-- Last scan timestamp
-- A visual indicator showing the scanner is running automatically
-
-### 6. Settings: Configurable rotation
-
-The Settings page already has a scan frequency slider. We'll connect it so:
-- Scan frequency controls the cron interval (stored in profile, used by the backend function)
-- Add a "cycles per keyword" setting (default 12) so users can adjust how long each keyword runs
+### 4. Message Rendering
+- Use `react-markdown` to render AI responses with proper tables, bold text, bullet lists
+- Style tables to match the dark theme
+- Copy-to-clipboard button on AI messages (matching the OpenClaw screenshots)
 
 ---
 
 ## Technical Details
 
-### Backend Function (`scheduled-scan`)
-- Reads all users from `profiles` table
-- For each user, queries their active keywords ordered by `sort_order`
-- Performs the same mock data generation + scoring pipeline currently in `useScan.ts`
-- Uses the Supabase service role key (available in edge functions) to write data on behalf of users
-- Handles rotation: after 12 cycles on a keyword, advances to the next
+### System Prompt Strategy
+The AI will receive a carefully crafted system prompt that includes:
+- Current scanner state (active keyword, cycle count, rotation status)
+- Recent trend data pre-formatted for easy reference
+- Instructions to format responses like:
 
-### Database Migration
-```sql
--- Add rotation tracking to keywords
-ALTER TABLE keywords ADD COLUMN is_current boolean DEFAULT false;
-ALTER TABLE keywords ADD COLUMN cycles_completed integer DEFAULT 0;
+```
+# Social Arbitrage Scan Complete
+Keyword: `sold out everywhere` (cycle 12/12 -> rotating to `they keep selling out`)
 
--- Enable pg_cron and pg_net extensions
-CREATE EXTENSION IF NOT EXISTS pg_cron;
-CREATE EXTENSION IF NOT EXISTS pg_net;
+## Hot Products Found:
+| Product | Views | Signal |
+|---------|-------|--------|
+| Starbucks Limited Cups | 160K | People lined up at doors before open |
+| Labubu (Pop Mart) | 109K + 145K | TWO viral videos, collectibles still dominating |
+
+## Ticker Signals:
+- **SBUX** -- Seasonal cup hype massive (160K views)
+- **NFLX** -- Bridgerton IP driving merch
+
+## Related Searches:
+- PS5 still selling out -> SONY
+- Alani energy drinks selling out -> watch for acquisition
+
+Logged 11 entries to brands.csv. Keyword rotated for next cycle.
 ```
 
-### Cron Setup (via SQL, not migration)
-```sql
-SELECT cron.schedule(
-  'scheduled-scan-every-5-min',
-  '*/5 * * * *',
-  $$ SELECT net.http_post(...) $$
-);
+### Edge Function Data Flow
+```
+User message
+  -> chat-assistant edge function
+    -> Query DB for context (trends, scans, tickers, rotation state)
+    -> Build system prompt + user message + history
+    -> Call Lovable AI (gemini-2.5-flash)
+    -> Return formatted response
+  -> Display in chat UI with markdown rendering
 ```
 
-### Frontend Changes
-- `useScan.ts`: Keep for manual scans, but also add a query to show current rotation state
-- `Index.tsx` (Dashboard): Add a small "Scanner Status" card showing active keyword + cycle progress
-- `Settings.tsx`: Wire up the frequency slider and add cycles-per-keyword config
+### Dependencies
+- `react-markdown` -- for rendering AI responses with tables and formatting
 
