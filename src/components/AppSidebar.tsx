@@ -7,6 +7,7 @@ import {
   Settings,
   LogOut,
   Zap,
+  MessageSquare,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,6 +27,7 @@ import { Button } from "@/components/ui/button";
 
 const NAV_ITEMS = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/" },
+  { title: "AI Chat", icon: MessageSquare, path: "/chat" },
   { title: "Trends", icon: TrendingUp, path: "/trends" },
   { title: "Watchlist", icon: Eye, path: "/watchlist" },
   { title: "Daily Digest", icon: Calendar, path: "/daily-digest" },
