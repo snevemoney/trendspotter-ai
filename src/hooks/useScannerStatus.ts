@@ -20,14 +20,29 @@ export function useScannerStatus() {
     queryFn: async (): Promise<ScannerStatus> => {
       if (!user) throw new Error("Not authenticated");
 
-      // Get current keyword
-      const { data: currentKw } = await supabase
+      // Get current keyword (or fall back to first by sort_order)
+      let currentKw = null;
+      const { data: currentKwData } = await supabase
         .from("keywords")
         .select("keyword, cycles_completed")
         .eq("user_id", user.id)
         .eq("active", true)
         .eq("is_current", true)
         .maybeSingle();
+
+      currentKw = currentKwData;
+
+      if (!currentKw) {
+        const { data: fallback } = await supabase
+          .from("keywords")
+          .select("keyword, cycles_completed")
+          .eq("user_id", user.id)
+          .eq("active", true)
+          .order("sort_order")
+          .limit(1)
+          .maybeSingle();
+        currentKw = fallback;
+      }
 
       // Get active keyword count
       const { count: activeCount } = await supabase
