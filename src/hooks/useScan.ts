@@ -4,10 +4,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { generateMockVideos, getBrandCompanyMatch } from "@/lib/mock-data";
 import { calculateTrendScore } from "@/lib/scoring";
 import { toast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 
 export function useScan() {
   const { user } = useAuth();
   const [scanning, setScanning] = useState(false);
+  const queryClient = useQueryClient();
 
   const runScan = useCallback(async () => {
     if (!user || scanning) return;
@@ -190,6 +192,11 @@ export function useScan() {
           completed_at: new Date().toISOString(),
         })
         .eq("id", scan.id);
+
+      // Invalidate queries so dashboard updates immediately
+      queryClient.invalidateQueries({ queryKey: ["trends"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["scanner-status"] });
 
       toast({
         title: `Scan complete: "${keyword.keyword}"`,
