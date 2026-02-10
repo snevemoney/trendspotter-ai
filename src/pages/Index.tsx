@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,11 @@ import { ScannerStatusCard } from "@/components/ScannerStatusCard";
 import { BlindspotRadar } from "@/components/BlindspotRadar";
 import { PredictionCard } from "@/components/PredictionCard";
 import { TrendPredictionOverlap } from "@/components/TrendPredictionOverlap";
+import { QuickScanDialog } from "@/components/QuickScanDialog";
 import { useDashboardStats, useTrends, useTrendAction } from "@/hooks/useTrends";
 import { useAddToWatchlist } from "@/hooks/useWatchlist";
 import { useScan } from "@/hooks/useScan";
+import { useKeywords, useAddKeyword } from "@/hooks/useKeywords";
 import {
   TrendingUp,
   Tag,
@@ -74,6 +77,25 @@ export default function Dashboard() {
   const trendAction = useTrendAction();
   const addToWatchlist = useAddToWatchlist();
   const navigate = useNavigate();
+  const { data: keywords } = useKeywords();
+  const addKeyword = useAddKeyword();
+  const [showQuickScan, setShowQuickScan] = useState(false);
+
+  const activeKeywords = keywords?.filter((k) => k.active) ?? [];
+
+  const handleRunScan = () => {
+    if (activeKeywords.length > 0) {
+      runScan();
+    } else {
+      setShowQuickScan(true);
+    }
+  };
+
+  const handleQuickScanSelect = async (keyword: string) => {
+    setShowQuickScan(false);
+    await addKeyword.mutateAsync(keyword);
+    runScan(keyword);
+  };
 
   const formatNumber = (n: number) => {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
@@ -91,7 +113,7 @@ export default function Dashboard() {
               Real-time trend intelligence from TikTok
             </p>
           </div>
-          <Button onClick={runScan} disabled={scanning}>
+          <Button onClick={handleRunScan} disabled={scanning}>
             {scanning ? (
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
             ) : (
@@ -100,6 +122,12 @@ export default function Dashboard() {
             {scanning ? "Scanning..." : "Run Scan"}
           </Button>
         </div>
+
+        <QuickScanDialog
+          open={showQuickScan}
+          onOpenChange={setShowQuickScan}
+          onSelectKeyword={handleQuickScanSelect}
+        />
 
         {/* Scanner Status + Blindspot Radar + KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
