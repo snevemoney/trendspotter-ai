@@ -37,6 +37,12 @@ export default function TrendDetail() {
   const addToWatchlist = useAddToWatchlist();
   const [notes, setNotes] = useState("");
 
+  const match = trend?.company_matches?.[0];
+  const { data: relatedPredictions } = useRelatedPredictions(
+    trend?.primary_entity || "",
+    match?.ticker ? [match.ticker] : []
+  );
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -55,12 +61,7 @@ export default function TrendDetail() {
     );
   }
 
-  const match = trend.company_matches?.[0];
   const videos = trend.trend_video_links?.map((link: any) => link.videos).filter(Boolean) || [];
-  const { data: relatedPredictions } = useRelatedPredictions(
-    trend.primary_entity,
-    match?.ticker ? [match.ticker] : []
-  );
 
   const formatNumber = (n: number) => {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
