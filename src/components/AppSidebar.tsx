@@ -9,6 +9,7 @@ import {
   Zap,
   MessageSquare,
   BarChart3,
+  Bell,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -31,6 +32,7 @@ const NAV_ITEMS = [
   { title: "AI Chat", icon: MessageSquare, path: "/chat" },
   { title: "Trends", icon: TrendingUp, path: "/trends" },
   { title: "Predictions", icon: BarChart3, path: "/predictions" },
+  { title: "Notifications", icon: Bell, path: "/notifications" },
   { title: "Watchlist", icon: Eye, path: "/watchlist" },
   { title: "Daily Digest", icon: Calendar, path: "/daily-digest" },
   { title: "Weekly Digest", icon: CalendarDays, path: "/weekly-digest" },

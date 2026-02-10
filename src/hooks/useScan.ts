@@ -5,6 +5,7 @@ import { generateMockVideos, getBrandCompanyMatch } from "@/lib/mock-data";
 import { calculateTrendScore, calculateBlindspotScore } from "@/lib/scoring";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
+import { checkPredictionAlerts } from "@/lib/prediction-alerts";
 
 export function useScan() {
   const { user } = useAuth();
@@ -211,6 +212,30 @@ export function useScan() {
       queryClient.invalidateQueries({ queryKey: ["trends"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       queryClient.invalidateQueries({ queryKey: ["scanner-status"] });
+
+      // Check for prediction market matches and generate alerts
+      try {
+        const { data: trendMatches } = await supabase
+          .from("company_matches")
+          .select("trend_id, company_name, ticker, trend_items!inner(score, blindspot_score, primary_entity)")
+          .eq("user_id", user.id)
+          .not("ticker", "is", null);
+
+        if (trendMatches?.length) {
+          const alertData = trendMatches.map((m: any) => ({
+            trendId: m.trend_id,
+            brandName: m.trend_items?.primary_entity || m.company_name,
+            ticker: m.ticker,
+            score: m.trend_items?.score || 0,
+            blindspotScore: m.trend_items?.blindspot_score || 0,
+          }));
+          await checkPredictionAlerts(user.id, alertData);
+          queryClient.invalidateQueries({ queryKey: ["notifications"] });
+          queryClient.invalidateQueries({ queryKey: ["notifications-unread-count"] });
+        }
+      } catch (alertErr) {
+        console.error("Prediction alert check error:", alertErr);
+      }
 
       toast({
         title: `Scan complete: "${keyword.keyword}"`,
