@@ -330,15 +330,15 @@ export default function TrendDetail() {
         </div>
 
         {/* Related Predictions */}
-        {relatedPredictions && relatedPredictions.length > 0 && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <BarChart3 className="h-4 w-4" /> Related Predictions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {relatedPredictions.map((event) => {
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <BarChart3 className="h-4 w-4" /> Related Predictions
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {relatedPredictions && relatedPredictions.length > 0 ? (
+              relatedPredictions.map((event) => {
                 const topMarket = event.markets?.[0];
                 const probability = topMarket ? Math.round(topMarket.last_price * 100) : null;
                 return (
@@ -352,10 +352,14 @@ export default function TrendDetail() {
                     trendScore={trend.score || 0}
                   />
                 );
-              })}
-            </CardContent>
-          </Card>
-        )}
+              })
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No prediction markets found for "{trend.primary_entity}".
+              </p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Source Videos */}
         {videos.length > 0 && (
