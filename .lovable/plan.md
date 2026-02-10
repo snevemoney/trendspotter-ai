@@ -1,168 +1,188 @@
 
 
-# Prediction Markets Integration -- Kalshi Data Feed
+# Trade Alert Notification System + Kalshi Verification
 
-## What This Adds
-
-A prediction markets layer that connects your social trend data to real-world event betting markets on Kalshi. When your scanner detects a brand trending on TikTok, the app will automatically check if there are related prediction markets (e.g., "Will inflation exceed 3%?", "Will the Fed cut rates?") and surface them alongside your trend data. This creates a powerful signal: social buzz + market sentiment = better conviction.
+This plan covers three parts: (1) building a notification system that fires alerts when a trending product has a matching Kalshi market with high probability, (2) verifying the Predictions page loads correctly, and (3) testing the AI chat with prediction market queries.
 
 ---
 
-## How It Works
+## Part 1: Notification System for Social + Prediction Signal Overlap
 
-### 1. Kalshi Markets Page (`/predictions`)
+### Database
 
-A new page accessible from the sidebar showing:
-- Live prediction markets pulled from Kalshi's public API
-- Categories relevant to your trading: Economics, Tech, Consumer, Entertainment
-- Market price (interpreted as probability), volume, and close date
-- Quick filters by category and search
-- Click any market to see full details and orderbook depth
+Create a `notifications` table to store alerts:
 
-### 2. Trend-to-Prediction Matching
+```text
+notifications
+- id (uuid, PK)
+- user_id (uuid, NOT NULL)
+- type (text) -- e.g. "prediction_match", "high_blindspot", "trend_alert"
+- title (text)
+- message (text)
+- trend_id (uuid, nullable, FK to trend_items)
+- metadata (jsonb) -- stores ticker, probability, Kalshi event ticker, etc.
+- read (boolean, default false)
+- created_at (timestamptz)
+```
 
-When viewing a trend detail page or the dashboard, the app will show related Kalshi markets:
-- Example: "Starbucks" trending on TikTok --> show "Will SBUX exceed $X?" or related consumer sentiment markets
-- Example: "Inflation" keywords in trends --> show Fed rate / CPI markets
-- Matching is done by keyword overlap between trend entities and Kalshi event titles
+RLS policies: users can only read/update their own notifications.
 
-### 3. AI Chat Enhancement
+### Alert Generation Logic
 
-The AI assistant will be able to reference Kalshi prediction markets when analyzing trends:
-- "What does Kalshi say about the economy right now?"
-- "Are there any prediction markets related to my trending tickers?"
-- Combined reports showing social signals + market probability for higher-conviction plays
+After each scan completes (in both `useScan.ts` and `scheduled-scan`):
 
-### 4. Dashboard Prediction Card
+1. For each trend item that has a company match (ticker), call the `kalshi-markets` edge function to search for related events using the brand name and ticker.
+2. If a matching Kalshi event is found with probability >= 65%, create a notification record:
+   - Title: "Prediction Signal: [Brand] ([Ticker])"
+   - Message: "[Brand] is trending on TikTok (score X) and Kalshi market '[market title]' is at Y% probability"
+   - Metadata: `{ ticker, probability, kalshiEventTicker, trendScore, blindspotScore }`
 
-A compact card on the dashboard showing 3-5 "hot" prediction markets that relate to your current trend data.
+This runs client-side for manual scans and server-side for scheduled scans.
+
+### Notification Bell + Dropdown (Frontend)
+
+Create `src/components/NotificationBell.tsx`:
+- Bell icon in the sidebar header (or top-right of AppLayout)
+- Unread count badge (red dot with number)
+- Click opens a dropdown/popover showing recent notifications
+- Each notification is clickable -- navigates to the relevant trend detail page
+- "Mark all as read" button
+- Notifications sorted by created_at DESC, limit 20
+
+Create `src/hooks/useNotifications.ts`:
+- `useNotifications()` -- fetches unread + recent notifications
+- `useMarkAsRead()` -- marks notification(s) as read
+- `useUnreadCount()` -- returns count of unread notifications (for badge)
+
+### Notifications Page
+
+Create `src/pages/Notifications.tsx`:
+- Full list of all notifications with pagination
+- Filter by type (prediction match, blindspot, etc.)
+- Mark individual or all as read
+- Add to sidebar navigation and App.tsx routes
+
+### Real-time Updates
+
+Enable realtime on the `notifications` table so the bell icon updates instantly when a scheduled scan generates a new alert (without page refresh).
 
 ---
 
-## Implementation Steps
+## Part 2: Verify Predictions Page
 
-### Step 1: Kalshi API Edge Function
+After implementation, navigate to `/predictions` and confirm:
+- Markets load from Kalshi API
+- Search input filters markets correctly
+- Category buttons filter by category
+- Event cards show probability bars, volume, and close dates
+- Expanding a card shows all sub-markets
 
-Create `supabase/functions/kalshi-markets/index.ts`:
-- Proxies requests to Kalshi's public API (`https://api.elections.kalshi.com/trade-api/v2`)
-- No authentication needed -- Kalshi's market data endpoints are public
-- Supports fetching:
-  - Events list with filters (category, status)
-  - Individual market details
-  - Orderbook data for specific markets
-- Caches results briefly to avoid hammering the API
-- Returns cleaned, formatted data to the frontend
+## Part 3: Verify AI Chat with Predictions
 
-### Step 2: Predictions Page
-
-Create `src/pages/Predictions.tsx`:
-- Grid/list of active Kalshi markets
-- Each card shows: Title, probability (yes price), volume, close date
-- Category filter tabs (Economics, Tech, Consumer, Entertainment, Politics)
-- Search bar to find specific markets
-- Color-coded probability bars (green for high "yes", red for high "no")
-- Click to expand for orderbook depth and event description
-
-### Step 3: Prediction Matching Hook
-
-Create `src/hooks/useKalshiMarkets.ts`:
-- `useKalshiMarkets(filters)` -- fetches markets with optional category/search filters
-- `useRelatedPredictions(trendEntity)` -- given a brand/product name, finds related Kalshi markets by keyword matching against event titles and descriptions
-- Caching via React Query with 5-minute stale time
-
-### Step 4: Dashboard Integration
-
-Create `src/components/PredictionCard.tsx`:
-- Queries Kalshi for markets related to the user's current trending tickers/brands
-- Shows top 3-5 relevant markets with probability and volume
-- "View All" link to the Predictions page
-
-### Step 5: Trend Detail Enhancement
-
-Update `src/pages/TrendDetail.tsx`:
-- Add a "Related Predictions" section below the existing trend data
-- Shows Kalshi markets that match the trend's entity name or mapped ticker
-- Helps users see if the market agrees or disagrees with the social signal
-
-### Step 6: AI Chat Integration
-
-Update `supabase/functions/chat-assistant/index.ts`:
-- Before responding, fetch relevant Kalshi markets based on the user's trending tickers
-- Add prediction market data to the AI context
-- System prompt instructions for generating combined reports:
-
-```
-## Prediction Market Signals
-| Market | Probability | Volume | Closes |
-|--------|-------------|--------|--------|
-| Will CPI exceed 3% in March? | 72% Yes | $1.2M | Mar 15 |
-| Will Fed cut rates in Q1? | 34% Yes | $890K | Mar 31 |
-
-## Social + Prediction Overlap:
-- Starbucks trending (160K views) + "Will SBUX beat Q1 earnings?" at 65% Yes
-- Consumer spending signals align with CPI prediction markets
-```
-
-### Step 7: Navigation Update
-
-- Add "Predictions" to the sidebar with a chart icon
-- Add `/predictions` route to App.tsx
+Test these prompts in the AI chat:
+- "what does the market think?"
+- "show me Kalshi predictions"
+- Confirm the response includes prediction market data tables
 
 ---
 
 ## Technical Details
 
-### Kalshi API (No Auth Required)
+### Files to Create
 
-The public endpoints we will use:
-- `GET /trade-api/v2/events` -- List events with optional filters
-- `GET /trade-api/v2/events/{event_ticker}` -- Get specific event
-- `GET /trade-api/v2/markets` -- List markets
-- `GET /trade-api/v2/markets/{ticker}` -- Get specific market
-- `GET /trade-api/v2/markets/{ticker}/orderbook` -- Get orderbook
+- `supabase/migrations/[timestamp]_notifications.sql` -- notifications table + RLS + realtime
+- `src/hooks/useNotifications.ts` -- queries + mutations for notifications
+- `src/components/NotificationBell.tsx` -- bell icon with dropdown
+- `src/pages/Notifications.tsx` -- full notifications page
 
-Base URL: `https://api.elections.kalshi.com/trade-api/v2`
+### Files to Modify
 
-All endpoints are public and require no API keys. The edge function proxies these to avoid CORS issues.
+- `src/hooks/useScan.ts` -- after scan completion, check for Kalshi matches and create notifications
+- `supabase/functions/scheduled-scan/index.ts` -- same alert generation for automated scans
+- `src/components/AppSidebar.tsx` -- add NotificationBell to header, add Notifications nav item
+- `src/components/AppLayout.tsx` -- optionally place bell in top bar
+- `src/App.tsx` -- add `/notifications` route
+- `src/integrations/supabase/types.ts` -- auto-updated with new table
 
-### Trend-to-Prediction Matching Logic
+### Alert Matching Logic (in useScan.ts)
 
 ```typescript
-function findRelatedMarkets(
-  trendEntity: string,
-  tickers: string[],
-  kalshiEvents: KalshiEvent[]
-): KalshiEvent[] {
-  const searchTerms = [
-    trendEntity.toLowerCase(),
-    ...tickers.map(t => t.toLowerCase())
-  ];
-  return kalshiEvents.filter(event =>
-    searchTerms.some(term =>
-      event.title.toLowerCase().includes(term) ||
-      event.sub_title?.toLowerCase().includes(term)
-    )
+// After scan completes, check for prediction matches
+const trendTickers = [...new Set(companyMatches.map(m => m.ticker))];
+for (const ticker of trendTickers) {
+  const kalshiRes = await fetch(
+    `${SUPABASE_URL}/functions/v1/kalshi-markets?action=events&search=${ticker}&limit=5&status=open`,
+    { headers: { Authorization: `Bearer ${ANON_KEY}` } }
   );
+  const kalshiData = await kalshiRes.json();
+  const events = kalshiData?.events || [];
+  for (const event of events) {
+    const market = event.markets?.[0];
+    const prob = market ? Math.round(market.last_price * 100) : 0;
+    if (prob >= 65) {
+      await supabase.from("notifications").insert({
+        user_id: user.id,
+        type: "prediction_match",
+        title: `Prediction Signal: ${ticker}`,
+        message: `${brandName} trending (score ${score}) + "${event.title}" at ${prob}% probability`,
+        trend_id: trendId,
+        metadata: { ticker, probability: prob, kalshiEvent: event.event_ticker }
+      });
+    }
+  }
 }
 ```
 
-### File Changes Summary
+### Notification Bell Component
 
-**New Files:**
-- `supabase/functions/kalshi-markets/index.ts` -- Edge function proxying Kalshi API
-- `src/pages/Predictions.tsx` -- Predictions page
-- `src/hooks/useKalshiMarkets.ts` -- Data fetching hooks
-- `src/components/PredictionCard.tsx` -- Dashboard prediction card
+```typescript
+// Unread count query with realtime subscription
+const channel = supabase
+  .channel('notifications')
+  .on('postgres_changes', {
+    event: 'INSERT',
+    schema: 'public',
+    table: 'notifications',
+    filter: `user_id=eq.${user.id}`,
+  }, () => {
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+  })
+  .subscribe();
+```
 
-**Modified Files:**
-- `src/components/AppSidebar.tsx` -- Add "Predictions" nav item
-- `src/App.tsx` -- Add `/predictions` route
-- `src/pages/TrendDetail.tsx` -- Add related predictions section
-- `src/pages/Index.tsx` -- Add PredictionCard to dashboard
-- `supabase/functions/chat-assistant/index.ts` -- Add Kalshi context to AI
-- `supabase/config.toml` -- Register kalshi-markets function
+### Database Migration SQL
 
-### No Database Changes Required
+```sql
+CREATE TABLE public.notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  type text NOT NULL DEFAULT 'prediction_match',
+  title text NOT NULL,
+  message text NOT NULL,
+  trend_id uuid REFERENCES public.trend_items(id) ON DELETE SET NULL,
+  metadata jsonb DEFAULT '{}',
+  read boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
 
-Kalshi data is fetched in real-time and cached client-side via React Query. No new tables are needed since we are reading public market data, not storing it.
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can read own notifications"
+  ON public.notifications FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own notifications"
+  ON public.notifications FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own notifications"
+  ON public.notifications FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+
+CREATE INDEX idx_notifications_user_unread
+  ON public.notifications(user_id, read)
+  WHERE read = false;
+```
 
