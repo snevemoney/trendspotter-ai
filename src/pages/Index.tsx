@@ -7,6 +7,7 @@ import { FreshnessIndicator } from "@/components/FreshnessIndicator";
 import { ScannerStatusCard } from "@/components/ScannerStatusCard";
 import { BlindspotRadar } from "@/components/BlindspotRadar";
 import { PredictionCard } from "@/components/PredictionCard";
+import { TrendPredictionOverlap } from "@/components/TrendPredictionOverlap";
 import { useDashboardStats, useTrends, useTrendAction } from "@/hooks/useTrends";
 import { useAddToWatchlist } from "@/hooks/useWatchlist";
 import { useScan } from "@/hooks/useScan";
@@ -107,29 +108,32 @@ export default function Dashboard() {
             <BlindspotRadar />
             <PredictionCard />
           </div>
-          <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-            <KPICard
-              title="Trends (24h)"
-              value={stats?.trends24h ?? 0}
-              icon={TrendingUp}
-              subtitle={`${stats?.trends7d ?? 0} in 7d`}
-            />
-            <KPICard
-              title="Brands Found"
-              value={stats?.uniqueBrands ?? 0}
-              icon={Tag}
-            />
-            <KPICard
-              title="Mapped Tickers"
-              value={stats?.mappedTickers ?? 0}
-              icon={BarChart3}
-            />
-            <KPICard
-              title="High Signal"
-              value={stats?.highSignalCount ?? 0}
-              icon={Zap}
-              subtitle="Score ≥ 70"
-            />
+          <div className="md:col-span-4 space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <KPICard
+                title="Trends (24h)"
+                value={stats?.trends24h ?? 0}
+                icon={TrendingUp}
+                subtitle={`${stats?.trends7d ?? 0} in 7d`}
+              />
+              <KPICard
+                title="Brands Found"
+                value={stats?.uniqueBrands ?? 0}
+                icon={Tag}
+              />
+              <KPICard
+                title="Mapped Tickers"
+                value={stats?.mappedTickers ?? 0}
+                icon={BarChart3}
+              />
+              <KPICard
+                title="High Signal"
+                value={stats?.highSignalCount ?? 0}
+                icon={Zap}
+                subtitle="Score ≥ 70"
+              />
+            </div>
+            <TrendPredictionOverlap />
           </div>
         </div>
 
