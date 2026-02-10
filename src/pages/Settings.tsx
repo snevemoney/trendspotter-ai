@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { useProfile, useUpdateProfile } from "@/hooks/useProfile";
 import { useKeywords, useAddKeyword, useDeleteKeyword, useToggleKeyword } from "@/hooks/useKeywords";
+import { SeedLibraryDialog, BulkPasteDialog } from "@/components/KeywordBulkActions";
 import { useState } from "react";
 import {
   Settings as SettingsIcon,
@@ -64,9 +65,18 @@ export default function Settings() {
         {/* Keywords */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Key className="h-4 w-4" /> Keywords
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Key className="h-4 w-4" /> Keywords
+                {keywords && keywords.length > 0 && (
+                  <Badge variant="secondary" className="text-xs">{keywords.length.toLocaleString()} keywords</Badge>
+                )}
+              </CardTitle>
+              <div className="flex gap-2">
+                <SeedLibraryDialog />
+                <BulkPasteDialog />
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex gap-2">
