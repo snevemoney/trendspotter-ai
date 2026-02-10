@@ -8,3 +8,15 @@ verify_jwt = false
 
 [functions.kalshi-markets]
 verify_jwt = false
+
+[functions.weekly-report]
+verify_jwt = false
+
+[functions.tiktok-search]
+verify_jwt = false
+
+[functions.extract-entities]
+verify_jwt = false
+
+[functions.map-ticker]
+verify_jwt = false
