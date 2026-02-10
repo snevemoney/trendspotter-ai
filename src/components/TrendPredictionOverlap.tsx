@@ -47,46 +47,69 @@ export function TrendPredictionOverlap() {
     enabled: !!user,
   });
 
-  // Get unique tickers and fetch Kalshi events for them
-  const tickers = [...new Set((companyMatches || []).map((m) => m.ticker).filter(Boolean))];
+  // Build search terms from trending entities and their tickers
+  const searchTerms = [
+    ...new Set([
+      ...(trends || []).map((t: any) => t.primary_entity?.toLowerCase()).filter(Boolean),
+      ...(companyMatches || []).map((m) => m.company_name?.toLowerCase()).filter(Boolean),
+      ...(companyMatches || []).map((m) => m.ticker?.toLowerCase()).filter(Boolean),
+    ]),
+  ];
 
+  // Search Kalshi with broader terms - use entity names not just tickers
   const { data: kalshiEvents, isLoading: kalshiLoading } = useKalshiEvents({
-    search: tickers.slice(0, 5).join(" "),
-    limit: 20,
+    search: searchTerms.slice(0, 10).join(" "),
+    limit: 50,
   });
 
   // Build overlap data
   const overlaps: OverlapItem[] = [];
 
-  if (trends && companyMatches && kalshiEvents) {
-    for (const match of companyMatches) {
-      const trend = trends.find((t: any) => t.id === match.trend_id);
-      if (!trend) continue;
+  if (trends && kalshiEvents && kalshiEvents.length > 0) {
+    const trendList = trends as any[];
+    
+    for (const trend of trendList) {
+      const entity = trend.primary_entity?.toLowerCase() || "";
+      if (!entity) continue;
 
-      // Find matching Kalshi event by keyword overlap
-      const matchingEvent = kalshiEvents.find(
-        (ev) =>
-          ev.title?.toLowerCase().includes(match.ticker!.toLowerCase()) ||
-          ev.title?.toLowerCase().includes(match.company_name.toLowerCase()) ||
-          ev.sub_title?.toLowerCase().includes(match.ticker!.toLowerCase())
-      );
+      // Find company match for this trend (if any)
+      const match = (companyMatches || []).find((m) => m.trend_id === trend.id);
+
+      // Try to match against any Kalshi event using entity name, ticker, or company name
+      const matchingEvent = kalshiEvents.find((ev) => {
+        const title = (ev.title || "").toLowerCase();
+        const subtitle = (ev.sub_title || "").toLowerCase();
+        const combined = title + " " + subtitle;
+
+        // Check entity name
+        if (entity.length > 2 && combined.includes(entity)) return true;
+        // Check ticker
+        if (match?.ticker && combined.includes(match.ticker.toLowerCase())) return true;
+        // Check company name
+        if (match?.company_name && combined.includes(match.company_name.toLowerCase())) return true;
+        // Check if any word in the event title matches the entity
+        const entityWords = entity.split(/\s+/).filter((w: string) => w.length > 3);
+        if (entityWords.some((w: string) => combined.includes(w))) return true;
+
+        return false;
+      });
 
       if (!matchingEvent) continue;
 
       const market = matchingEvent.markets?.[0];
-      const prob = market ? Math.round((market.last_price || 0) * 100) : 0;
-      if (prob === 0) continue;
+      const prob = market ? Math.round((market.last_price || 0) * 100) : 50; // Default 50% if no market data
 
-      // Overlap score: weighted combo of trend score, blindspot, and prediction probability
       const overlapScore = Math.round(
         (trend.score || 0) * 0.35 +
         (trend.blindspot_score || 0) * 0.25 +
         prob * 0.4
       );
 
+      const ticker = match?.ticker || entity.toUpperCase().slice(0, 4);
+
       overlaps.push({
         brand: trend.primary_entity,
-        ticker: match.ticker!,
+        ticker,
         trendScore: trend.score || 0,
         blindspotScore: trend.blindspot_score || 0,
         kalshiProb: prob,
