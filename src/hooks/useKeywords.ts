@@ -79,3 +79,49 @@ export function useToggleKeyword() {
     },
   });
 }
+
+export function useBulkAddKeywords() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (keywords: string[]) => {
+      if (!user) throw new Error("Not authenticated");
+
+      // Fetch existing keywords to deduplicate
+      const { data: existing } = await supabase
+        .from("keywords")
+        .select("keyword, sort_order")
+        .eq("user_id", user.id);
+
+      const existingSet = new Set((existing || []).map((k) => k.keyword.toLowerCase()));
+      const maxOrder = (existing || []).reduce((max, k) => Math.max(max, k.sort_order ?? 0), -1);
+
+      const newKeywords = keywords
+        .map((k) => k.trim().toLowerCase())
+        .filter((k) => k && !existingSet.has(k));
+
+      const duplicates = keywords.length - newKeywords.length;
+
+      // Insert in chunks of 100
+      for (let i = 0; i < newKeywords.length; i += 100) {
+        const chunk = newKeywords.slice(i, i + 100).map((keyword, j) => ({
+          user_id: user.id,
+          keyword,
+          sort_order: maxOrder + 1 + i + j,
+        }));
+        const { error } = await supabase.from("keywords").insert(chunk);
+        if (error) throw error;
+      }
+
+      return { added: newKeywords.length, duplicates };
+    },
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["keywords"] });
+      toast({
+        title: `Added ${result.added} keywords`,
+        description: result.duplicates > 0 ? `${result.duplicates} duplicates skipped` : undefined,
+      });
+    },
+  });
+}
