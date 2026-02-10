@@ -304,6 +304,7 @@ export type Database = {
           primary_entity: string
           score: number | null
           signal_phrases: string[] | null
+          source_keyword: string | null
           status: string | null
           summary: string | null
           total_comments: number | null
@@ -324,6 +325,7 @@ export type Database = {
           primary_entity: string
           score?: number | null
           signal_phrases?: string[] | null
+          source_keyword?: string | null
           status?: string | null
           summary?: string | null
           total_comments?: number | null
@@ -344,6 +346,7 @@ export type Database = {
           primary_entity?: string
           score?: number | null
           signal_phrases?: string[] | null
+          source_keyword?: string | null
           status?: string | null
           summary?: string | null
           total_comments?: number | null

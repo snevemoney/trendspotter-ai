@@ -1,0 +1,1 @@
+ALTER TABLE trend_items ADD COLUMN source_keyword text;

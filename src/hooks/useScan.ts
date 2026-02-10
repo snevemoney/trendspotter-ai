@@ -241,7 +241,8 @@ export function useScan() {
               total_likes: video.likes,
               total_comments: video.comments,
               total_shares: video.shares,
-            })
+              source_keyword: keyword.keyword,
+            } as any)
             .select()
             .single();
 

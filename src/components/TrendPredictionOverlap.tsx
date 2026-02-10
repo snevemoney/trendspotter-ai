@@ -1,11 +1,13 @@
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { useTrends } from "@/hooks/useTrends";
-import { useKalshiEvents, KalshiEvent } from "@/hooks/useKalshiMarkets";
+import { useKalshiEvents } from "@/hooks/useKalshiMarkets";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { Loader2, TrendingUp, Target } from "lucide-react";
+import { Loader2, TrendingUp, Target, Lightbulb, ChevronDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import {
   BarChart,
@@ -16,6 +18,7 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 
 interface OverlapItem {
   brand: string;
@@ -26,6 +29,63 @@ interface OverlapItem {
   overlapScore: number;
   marketTitle: string;
   trendId: string;
+  sourceKeyword?: string;
+}
+
+function OverlapExplanation({ item }: { item: OverlapItem }) {
+  const [open, setOpen] = useState(false);
+
+  const { data: explanation, isLoading } = useQuery({
+    queryKey: ["explain-overlap", item.ticker, item.marketTitle],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("explain-overlap", {
+        body: {
+          brand: item.brand,
+          keyword: item.sourceKeyword || undefined,
+          trendScore: item.trendScore,
+          marketTitle: item.marketTitle,
+          probability: item.kalshiProb,
+        },
+      });
+      if (error) throw error;
+      return data?.explanation as string;
+    },
+    enabled: open,
+    staleTime: 1000 * 60 * 30, // cache 30 min
+  });
+
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-6 px-2 text-[10px] gap-1 text-muted-foreground hover:text-foreground">
+          <Lightbulb className="h-3 w-3" />
+          Why?
+          <ChevronDown className={`h-3 w-3 transition-transform ${open ? "rotate-180" : ""}`} />
+        </Button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-1.5 p-2.5 rounded-md bg-muted/50 border text-xs leading-relaxed text-muted-foreground">
+          {isLoading ? (
+            <div className="flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Analyzing connection…
+            </div>
+          ) : explanation ? (
+            <>
+              {item.sourceKeyword && (
+                <p className="text-[10px] text-primary/70 mb-1">
+                  Discovered via keyword: "{item.sourceKeyword}"
+                </p>
+              )}
+              <p>{explanation}</p>
+            </>
+          ) : (
+            <p>Unable to generate explanation.</p>
+          )}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
 }
 
 export function TrendPredictionOverlap() {
@@ -33,7 +93,6 @@ export function TrendPredictionOverlap() {
   const { data: trends } = useTrends();
   const navigate = useNavigate();
 
-  // Get company matches for tickers
   const { data: companyMatches } = useQuery({
     queryKey: ["company-matches-all"],
     queryFn: async () => {
@@ -47,7 +106,6 @@ export function TrendPredictionOverlap() {
     enabled: !!user,
   });
 
-  // Build search terms from trending entities and their tickers
   const searchTerms = [
     ...new Set([
       ...(trends || []).map((t: any) => t.primary_entity?.toLowerCase()).filter(Boolean),
@@ -56,48 +114,36 @@ export function TrendPredictionOverlap() {
     ]),
   ];
 
-  // Search Kalshi with broader terms - use entity names not just tickers
   const { data: kalshiEvents, isLoading: kalshiLoading } = useKalshiEvents({
     search: searchTerms.slice(0, 10).join(" "),
     limit: 50,
   });
 
-  // Build overlap data
   const overlaps: OverlapItem[] = [];
 
   if (trends && kalshiEvents && kalshiEvents.length > 0) {
     const trendList = trends as any[];
-    
+
     for (const trend of trendList) {
       const entity = trend.primary_entity?.toLowerCase() || "";
       if (!entity) continue;
 
-      // Find company match for this trend (if any)
       const match = (companyMatches || []).find((m) => m.trend_id === trend.id);
 
-      // Try to match against any Kalshi event using entity name, ticker, or company name
       const matchingEvent = kalshiEvents.find((ev) => {
-        const title = (ev.title || "").toLowerCase();
-        const subtitle = (ev.sub_title || "").toLowerCase();
-        const combined = title + " " + subtitle;
-
-        // Check entity name
+        const combined = ((ev.title || "") + " " + (ev.sub_title || "")).toLowerCase();
         if (entity.length > 2 && combined.includes(entity)) return true;
-        // Check ticker
         if (match?.ticker && combined.includes(match.ticker.toLowerCase())) return true;
-        // Check company name
         if (match?.company_name && combined.includes(match.company_name.toLowerCase())) return true;
-        // Check if any word in the event title matches the entity
         const entityWords = entity.split(/\s+/).filter((w: string) => w.length > 3);
         if (entityWords.some((w: string) => combined.includes(w))) return true;
-
         return false;
       });
 
       if (!matchingEvent) continue;
 
       const market = matchingEvent.markets?.[0];
-      const prob = market ? Math.round((market.last_price || 0) * 100) : 50; // Default 50% if no market data
+      const prob = market ? Math.round((market.last_price || 0) * 100) : 50;
 
       const overlapScore = Math.round(
         (trend.score || 0) * 0.35 +
@@ -105,22 +151,20 @@ export function TrendPredictionOverlap() {
         prob * 0.4
       );
 
-      const ticker = match?.ticker || entity.toUpperCase().slice(0, 4);
-
       overlaps.push({
         brand: trend.primary_entity,
-        ticker,
+        ticker: match?.ticker || entity.toUpperCase().slice(0, 4),
         trendScore: trend.score || 0,
         blindspotScore: trend.blindspot_score || 0,
         kalshiProb: prob,
         overlapScore,
         marketTitle: matchingEvent.title,
         trendId: trend.id,
+        sourceKeyword: trend.source_keyword || undefined,
       });
     }
   }
 
-  // Deduplicate by ticker and sort by overlap score
   const seen = new Set<string>();
   const uniqueOverlaps = overlaps
     .filter((o) => {
@@ -186,60 +230,42 @@ export function TrendPredictionOverlap() {
         ) : (
           <div className="space-y-3">
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart
-                data={uniqueOverlaps}
-                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-              >
-                <XAxis
-                  dataKey="ticker"
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                  axisLine={false}
-                  tickLine={false}
-                  domain={[0, 100]}
-                />
+              <BarChart data={uniqueOverlaps} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <XAxis dataKey="ticker" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} domain={[0, 100]} />
                 <Tooltip content={<CustomTooltip />} cursor={{ fill: "hsl(var(--muted) / 0.5)" }} />
                 <Bar dataKey="overlapScore" radius={[4, 4, 0, 0]} maxBarSize={32}>
                   {uniqueOverlaps.map((entry, i) => (
-                    <Cell
-                      key={i}
-                      fill={getBarColor(entry.overlapScore)}
-                      className="cursor-pointer"
-                      onClick={() => navigate(`/trends/${entry.trendId}`)}
-                    />
+                    <Cell key={i} fill={getBarColor(entry.overlapScore)} className="cursor-pointer" onClick={() => navigate(`/trends/${entry.trendId}`)} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
 
-            {/* Top overlaps list */}
-            <div className="space-y-1.5">
+            <div className="space-y-1">
               {uniqueOverlaps.slice(0, 4).map((o) => (
-                <button
-                  key={o.ticker}
-                  onClick={() => navigate(`/trends/${o.trendId}`)}
-                  className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted/50 transition-colors text-left"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="font-mono text-xs font-semibold text-primary">{o.ticker}</span>
-                    <span className="text-xs text-muted-foreground truncate">{o.brand}</span>
+                <div key={o.ticker} className="space-y-0.5">
+                  <button
+                    onClick={() => navigate(`/trends/${o.trendId}`)}
+                    className="w-full flex items-center justify-between px-2 py-1.5 rounded hover:bg-muted/50 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-xs font-semibold text-primary">{o.ticker}</span>
+                      <span className="text-xs text-muted-foreground truncate">{o.brand}</span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="text-[10px] text-muted-foreground">
+                        T:{o.trendScore} B:{o.blindspotScore} K:{o.kalshiProb}%
+                      </span>
+                      <Badge variant={o.overlapScore >= 60 ? "default" : "secondary"} className="text-[10px] font-mono px-1.5">
+                        {o.overlapScore}
+                      </Badge>
+                    </div>
+                  </button>
+                  <div className="pl-2">
+                    <OverlapExplanation item={o} />
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-[10px] text-muted-foreground">
-                      T:{o.trendScore} B:{o.blindspotScore} K:{o.kalshiProb}%
-                    </span>
-                    <Badge
-                      variant={o.overlapScore >= 60 ? "default" : "secondary"}
-                      className="text-[10px] font-mono px-1.5"
-                    >
-                      {o.overlapScore}
-                    </Badge>
-                  </div>
-                </button>
+                </div>
               ))}
             </div>
           </div>

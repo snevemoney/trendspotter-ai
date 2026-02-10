@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.map-ticker]
 verify_jwt = false
+
+[functions.explain-overlap]
+verify_jwt = false
