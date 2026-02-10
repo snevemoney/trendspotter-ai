@@ -1,67 +1,56 @@
 
 
-# Fix: Related Predictions Showing Irrelevant Markets
+# Fix: TikTok Video Links Not Working
 
 ## Problem
 
-The `useRelatedPredictions` hook sends a combined search like `"Dollar Tree DLTR"` to Kalshi's API. Kalshi's search is fuzzy and broad -- it returns any event loosely related to any word in the query. This means a trend for "Tesla" returns markets about Elon Musk going to Mars, which has nothing to do with the keyword or brand trend.
+Clicking a source video link leads to a non-existent TikTok page. Two issues in the `tiktok-search` edge function cause this:
+
+1. **Wrong URL field**: The `url` field prefers `item.play`, which is a direct MP4 file URL (e.g., `https://v16.tiktokcdn.com/...`), not a TikTok page link users can visit.
+2. **Fake video IDs**: When `item.video_id` or `item.id` aren't found in the API response, a random ID is generated (`tt_1770686404992_256329`), making any constructed URL invalid.
 
 ## Root Cause
 
-In `src/hooks/useKalshiMarkets.ts`, the `useRelatedPredictions` function:
-1. Joins entity + ticker into one search string (e.g., `"Tesla TSLA"`)
-2. Sends it as-is to Kalshi's `/events?search=...` endpoint
-3. Returns whatever Kalshi gives back with **zero filtering**
-
-Kalshi's search is associative -- it returns anything in the same topic neighborhood, not exact matches.
+The RapidAPI "tiktok-scraper7" response likely uses different field names than what the code expects. The code never constructs a proper TikTok page URL from the real video ID and author handle.
 
 ## Solution
 
-Add **client-side relevance filtering** after fetching results from Kalshi. Only keep events whose title or subtitle explicitly mentions the brand name, company name, or ticker. This ensures "Will Elon go to Mars?" is dropped when the trend is about Tesla vehicles/stock.
+### 1. Update `supabase/functions/tiktok-search/index.ts`
 
-## Changes
+- Add a temporary `console.log(JSON.stringify(items[0]))` to capture the actual API response shape (can be removed after verifying)
+- Extract the real video ID from multiple possible fields: `item.video_id`, `item.id`, `item.aweme_id`
+- Always construct the TikTok page URL as: `https://www.tiktok.com/@{author_handle}/video/{video_id}` instead of using `item.play`
+- Only fall back to `item.play` if no real video ID is available (last resort)
+- Skip videos that have no real video ID rather than inserting broken links
 
-### 1. Update `useRelatedPredictions` in `src/hooks/useKalshiMarkets.ts`
+### 2. Clean up old broken data (optional)
 
-- Search for the **entity name only** (not ticker + entity combined, which dilutes results)
-- After receiving results, filter events so the title or subtitle must contain at least one of: the brand/entity name, the ticker symbol, or a significant word from the entity (4+ characters)
-- This is the same filtering logic already used in `TrendPredictionOverlap.tsx` (the dashboard widget), which works correctly
+Old videos with fake `tt_` prefixed IDs and broken URLs already exist in the database. These can be cleaned up with a database query to delete videos where `video_id LIKE 'tt_%'`, or they will naturally age out.
 
-### 2. Update `TrendPredictionOverlap.tsx` search query
-
-- Currently searches with up to 10 terms joined together, which also causes irrelevant results
-- Change to search per-entity or use stricter matching
-- The widget already does client-side filtering (the `matchingEvent` logic), so main fix is ensuring the search query is more targeted
-
-## Technical Details
-
-Updated `useRelatedPredictions` function:
-
-```text
-function useRelatedPredictions(entity, tickers, companyName?)
-  1. Search Kalshi for just the entity name (e.g., "Tesla")
-  2. Filter results: event.title or event.sub_title must contain
-     one of [entity, ticker, companyName] (case-insensitive)
-  3. Return only matching events (max 5)
-```
-
-Filter logic (mirrors the working overlap widget):
-```text
-for each event from Kalshi:
-  combined = (event.title + " " + event.sub_title).toLowerCase()
-  keep if:
-    - combined includes entity.toLowerCase(), OR
-    - combined includes ticker.toLowerCase(), OR
-    - combined includes companyName.toLowerCase()
-  discard otherwise
-```
-
-This ensures "Will Elon Musk go to Mars?" is dropped because its title contains neither "Tesla", "TSLA", nor "Tesla Inc".
-
-## Files to Modify
+## Changes Summary
 
 | File | Change |
 |------|--------|
-| `src/hooks/useKalshiMarkets.ts` | Add client-side relevance filter to `useRelatedPredictions` select function |
-| `src/pages/TrendDetail.tsx` | Pass company name to `useRelatedPredictions` for better matching |
+| `supabase/functions/tiktok-search/index.ts` | Fix URL construction to always build proper TikTok page URLs; add debug logging for API response shape; handle `aweme_id` field |
 
+## Technical Detail
+
+Updated video normalization logic:
+
+```text
+1. Extract real video ID:
+   realId = item.video_id || item.aweme_id || item.id
+
+2. Extract author handle:
+   handle = item.author?.unique_id || item.author?.nickname
+
+3. Build page URL (not play URL):
+   if (realId && handle):
+     url = "https://www.tiktok.com/@{handle}/video/{realId}"
+   else:
+     url = item.play  (fallback, at least links to something)
+
+4. Skip video entirely if no realId (don't generate fake IDs)
+```
+
+This ensures every stored URL points to a real, visitable TikTok page.
