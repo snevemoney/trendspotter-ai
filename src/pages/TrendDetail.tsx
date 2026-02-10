@@ -25,9 +25,102 @@ import {
   TrendingUp,
   BarChart3,
   Clock,
+  Lightbulb,
+  Search,
 } from "lucide-react";
 import { useRelatedPredictions } from "@/hooks/useKalshiMarkets";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
+
+function RelatedPredictionCard({ event, probability, topMarket, brand, sourceKeyword, trendScore }: {
+  event: any;
+  probability: number | null;
+  topMarket: any;
+  brand: string;
+  sourceKeyword?: string;
+  trendScore: number;
+}) {
+  const [showExplanation, setShowExplanation] = useState(false);
+
+  const { data: explanation, isLoading: explLoading } = useQuery({
+    queryKey: ["explain-overlap", brand, event.title],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("explain-overlap", {
+        body: {
+          brand,
+          keyword: sourceKeyword || undefined,
+          trendScore,
+          marketTitle: event.title,
+          probability: probability || 50,
+        },
+      });
+      if (error) throw error;
+      return data?.explanation as string;
+    },
+    enabled: showExplanation,
+    staleTime: 1000 * 60 * 30,
+  });
+
+  return (
+    <div className="p-3 rounded-lg bg-muted/30 space-y-2">
+      <p className="text-sm font-medium leading-tight">{event.title}</p>
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        {probability !== null && (
+          <Badge
+            variant="secondary"
+            className={`text-[10px] font-mono ${
+              probability >= 70 ? "bg-green-500/10 text-green-600" : probability <= 30 ? "bg-red-500/10 text-red-600" : ""
+            }`}
+          >
+            {probability}% Yes
+          </Badge>
+        )}
+        {topMarket?.volume != null && (
+          <span>Vol: {topMarket.volume.toLocaleString()}</span>
+        )}
+        {topMarket?.close_time && (
+          <span className="flex items-center gap-0.5">
+            <Clock className="h-3 w-3" />
+            {format(new Date(topMarket.close_time), "MMM d")}
+          </span>
+        )}
+      </div>
+
+      {sourceKeyword && (
+        <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+          <Search className="h-3 w-3" />
+          Discovered via keyword: <span className="font-medium text-foreground">"{sourceKeyword}"</span>
+        </p>
+      )}
+
+      {!showExplanation ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 px-2 text-[10px] gap-1 text-muted-foreground"
+          onClick={() => setShowExplanation(true)}
+        >
+          <Lightbulb className="h-3 w-3" />
+          Why this matters
+        </Button>
+      ) : (
+        <div className="p-2.5 rounded-md bg-background/50 border text-xs leading-relaxed text-muted-foreground">
+          {explLoading ? (
+            <div className="flex items-center gap-1.5">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Analyzing connection…
+            </div>
+          ) : explanation ? (
+            <p>{explanation}</p>
+          ) : (
+            <p>Unable to generate explanation.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TrendDetail() {
   const { id } = useParams<{ id: string }>();
@@ -243,35 +336,20 @@ export default function TrendDetail() {
                 <BarChart3 className="h-4 w-4" /> Related Predictions
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {relatedPredictions.map((event) => {
                 const topMarket = event.markets?.[0];
                 const probability = topMarket ? Math.round(topMarket.last_price * 100) : null;
                 return (
-                  <div key={event.event_ticker} className="p-3 rounded-lg bg-muted/30 space-y-1">
-                    <p className="text-sm font-medium leading-tight">{event.title}</p>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      {probability !== null && (
-                        <Badge
-                          variant="secondary"
-                          className={`text-[10px] font-mono ${
-                            probability >= 70 ? "bg-green-500/10 text-green-600" : probability <= 30 ? "bg-red-500/10 text-red-600" : ""
-                          }`}
-                        >
-                          {probability}% Yes
-                        </Badge>
-                      )}
-                      {topMarket?.volume != null && (
-                        <span>Vol: {topMarket.volume.toLocaleString()}</span>
-                      )}
-                      {topMarket?.close_time && (
-                        <span className="flex items-center gap-0.5">
-                          <Clock className="h-3 w-3" />
-                          {format(new Date(topMarket.close_time), "MMM d")}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  <RelatedPredictionCard
+                    key={event.event_ticker}
+                    event={event}
+                    probability={probability}
+                    topMarket={topMarket}
+                    brand={trend.primary_entity}
+                    sourceKeyword={(trend as any).source_keyword}
+                    trendScore={trend.score || 0}
+                  />
                 );
               })}
             </CardContent>
