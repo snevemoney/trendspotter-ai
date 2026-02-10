@@ -54,13 +54,29 @@ serve(async (req: Request) => {
 
     const items = data?.data?.videos || data?.data || [];
 
+    // Log first item shape for debugging
+    if (items.length > 0) {
+      console.log("TikTok API item sample:", JSON.stringify(items[0], null, 2));
+    }
+
     for (const item of items) {
       try {
+        const realId = item.video_id || item.aweme_id || item.id;
+        if (!realId) {
+          console.warn("Skipping video with no real ID");
+          continue;
+        }
+
+        const handle = item.author?.unique_id || item.author?.nickname;
+        const tiktokUrl = handle
+          ? `https://www.tiktok.com/@${handle}/video/${realId}`
+          : item.play || `https://www.tiktok.com/video/${realId}`;
+
         const video: TikTokVideo = {
-          videoId: item.video_id || item.id || `tt_${Date.now()}_${Math.random().toString(36).slice(2)}`,
-          url: item.play || item.video_url || `https://www.tiktok.com/@${item.author?.unique_id || "user"}/video/${item.video_id || item.id}`,
+          videoId: String(realId),
+          url: tiktokUrl,
           caption: item.title || item.desc || item.text || "",
-          author: item.author?.unique_id ? `@${item.author.unique_id}` : item.author?.nickname ? `@${item.author.nickname}` : "@unknown",
+          author: handle ? `@${handle}` : "@unknown",
           postedAt: item.create_time
             ? new Date(item.create_time * 1000).toISOString()
             : new Date().toISOString(),
