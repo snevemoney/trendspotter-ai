@@ -60,7 +60,7 @@ export function useScan() {
           .order("sort_order");
 
         if (!keywords?.length) {
-          toast({ title: "No keywords", description: "Add keywords in Settings first.", variant: "destructive" });
+          // No toast — the UI handles this by showing the QuickScanDialog
           return;
         }
 
