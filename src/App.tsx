@@ -13,6 +13,7 @@ import DailyDigest from "./pages/DailyDigest";
 import WeeklyDigest from "./pages/WeeklyDigest";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
+import Predictions from "./pages/Predictions";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="/weekly-digest" element={<ProtectedRoute><WeeklyDigest /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+      <Route path="/predictions" element={<ProtectedRoute><Predictions /></ProtectedRoute>} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

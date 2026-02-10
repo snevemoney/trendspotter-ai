@@ -23,7 +23,10 @@ import {
   Loader2,
   Building2,
   TrendingUp,
+  BarChart3,
+  Clock,
 } from "lucide-react";
+import { useRelatedPredictions } from "@/hooks/useKalshiMarkets";
 import { format } from "date-fns";
 
 export default function TrendDetail() {
@@ -54,6 +57,10 @@ export default function TrendDetail() {
 
   const match = trend.company_matches?.[0];
   const videos = trend.trend_video_links?.map((link: any) => link.videos).filter(Boolean) || [];
+  const { data: relatedPredictions } = useRelatedPredictions(
+    trend.primary_entity,
+    match?.ticker ? [match.ticker] : []
+  );
 
   const formatNumber = (n: number) => {
     if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
@@ -226,6 +233,49 @@ export default function TrendDetail() {
             </CardContent>
           </Card>
         </div>
+
+        {/* Related Predictions */}
+        {relatedPredictions && relatedPredictions.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <BarChart3 className="h-4 w-4" /> Related Predictions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {relatedPredictions.map((event) => {
+                const topMarket = event.markets?.[0];
+                const probability = topMarket ? Math.round(topMarket.last_price * 100) : null;
+                return (
+                  <div key={event.event_ticker} className="p-3 rounded-lg bg-muted/30 space-y-1">
+                    <p className="text-sm font-medium leading-tight">{event.title}</p>
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                      {probability !== null && (
+                        <Badge
+                          variant="secondary"
+                          className={`text-[10px] font-mono ${
+                            probability >= 70 ? "bg-green-500/10 text-green-600" : probability <= 30 ? "bg-red-500/10 text-red-600" : ""
+                          }`}
+                        >
+                          {probability}% Yes
+                        </Badge>
+                      )}
+                      {topMarket?.volume != null && (
+                        <span>Vol: {topMarket.volume.toLocaleString()}</span>
+                      )}
+                      {topMarket?.close_time && (
+                        <span className="flex items-center gap-0.5">
+                          <Clock className="h-3 w-3" />
+                          {format(new Date(topMarket.close_time), "MMM d")}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Source Videos */}
         {videos.length > 0 && (
