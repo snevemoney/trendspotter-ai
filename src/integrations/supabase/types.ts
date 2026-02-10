@@ -250,6 +250,7 @@ export type Database = {
       }
       trend_items: {
         Row: {
+          blindspot_score: number | null
           created_at: string
           entity_type: Database["public"]["Enums"]["entity_type"] | null
           first_seen: string
@@ -269,6 +270,7 @@ export type Database = {
           video_count: number | null
         }
         Insert: {
+          blindspot_score?: number | null
           created_at?: string
           entity_type?: Database["public"]["Enums"]["entity_type"] | null
           first_seen?: string
@@ -288,6 +290,7 @@ export type Database = {
           video_count?: number | null
         }
         Update: {
+          blindspot_score?: number | null
           created_at?: string
           entity_type?: Database["public"]["Enums"]["entity_type"] | null
           first_seen?: string

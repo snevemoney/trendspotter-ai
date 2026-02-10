@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScoreBadge } from "@/components/ScoreBadge";
 import { FreshnessIndicator } from "@/components/FreshnessIndicator";
 import { ScannerStatusCard } from "@/components/ScannerStatusCard";
+import { BlindspotRadar } from "@/components/BlindspotRadar";
 import { useDashboardStats, useTrends, useTrendAction } from "@/hooks/useTrends";
 import { useAddToWatchlist } from "@/hooks/useWatchlist";
 import { useScan } from "@/hooks/useScan";
@@ -98,9 +99,12 @@ export default function Dashboard() {
           </Button>
         </div>
 
-        {/* Scanner Status + KPI Cards */}
+        {/* Scanner Status + Blindspot Radar + KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <ScannerStatusCard />
+          <div className="space-y-4">
+            <ScannerStatusCard />
+            <BlindspotRadar />
+          </div>
           <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPICard
               title="Trends (24h)"

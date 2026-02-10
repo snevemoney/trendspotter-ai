@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 import { generateMockVideos, getBrandCompanyMatch } from "@/lib/mock-data";
-import { calculateTrendScore } from "@/lib/scoring";
+import { calculateTrendScore, calculateBlindspotScore } from "@/lib/scoring";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -117,6 +117,18 @@ export function useScan() {
           hasCompanyMatch: !!companyMatch,
         });
 
+        // Calculate blindspot score
+        const hoursOld = (Date.now() - video.postedAt.getTime()) / 3600000;
+        const { blindspotScore } = calculateBlindspotScore({
+          score,
+          ticker: companyMatch?.ticker,
+          exchange: companyMatch?.exchange,
+          companyName: companyMatch?.company,
+          totalLikes: video.likes + (existingTrend?.total_likes || 0),
+          videoCount,
+          hoursOld,
+        });
+
         if (existingTrend) {
           // Update existing trend
           await supabase
@@ -125,6 +137,7 @@ export function useScan() {
               score,
               label,
               signal_phrases: signals,
+              blindspot_score: blindspotScore,
               last_seen: new Date().toISOString(),
               video_count: videoCount,
               total_likes: (existingTrend.total_likes || 0) + video.likes,
@@ -150,6 +163,7 @@ export function useScan() {
               score,
               label,
               signal_phrases: signals,
+              blindspot_score: blindspotScore,
               video_count: 1,
               total_likes: video.likes,
               total_comments: video.comments,

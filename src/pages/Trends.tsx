@@ -45,6 +45,7 @@ export default function Trends() {
   const [minScore, setMinScore] = useState(0);
   const [maxScore, setMaxScore] = useState(100);
   const [mappedOnly, setMappedOnly] = useState(false);
+  const [blindspotsOnly, setBlindspotsOnly] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [showFilters, setShowFilters] = useState(false);
 
@@ -52,6 +53,7 @@ export default function Trends() {
     minScore,
     maxScore,
     mappedOnly,
+    blindspotsOnly,
     status: statusFilter === "all" ? undefined : statusFilter,
   });
 
@@ -187,6 +189,16 @@ export default function Trends() {
                 />
                 <Label htmlFor="mapped" className="text-xs">
                   Mapped ticker only
+                </Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={blindspotsOnly}
+                  onCheckedChange={setBlindspotsOnly}
+                  id="blindspots"
+                />
+                <Label htmlFor="blindspots" className="text-xs">
+                  Blindspots only
                 </Label>
               </div>
             </CardContent>
