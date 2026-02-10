@@ -1,56 +1,80 @@
 
 
-# Fix: TikTok Video Links Not Working
+# Smart Scan: Remove Keyword Prerequisite
 
 ## Problem
 
-Clicking a source video link leads to a non-existent TikTok page. Two issues in the `tiktok-search` edge function cause this:
-
-1. **Wrong URL field**: The `url` field prefers `item.play`, which is a direct MP4 file URL (e.g., `https://v16.tiktokcdn.com/...`), not a TikTok page link users can visit.
-2. **Fake video IDs**: When `item.video_id` or `item.id` aren't found in the API response, a random ID is generated (`tt_1770686404992_256329`), making any constructed URL invalid.
-
-## Root Cause
-
-The RapidAPI "tiktok-scraper7" response likely uses different field names than what the code expects. The code never constructs a proper TikTok page URL from the real video ID and author handle.
+Currently, clicking "Run Scan" with no keywords shows a red error toast ("No keywords - Add keywords in Settings first") and does nothing. Users must navigate to Settings to manually add keywords before scanning, which is a bad first-run experience.
 
 ## Solution
 
-### 1. Update `supabase/functions/tiktok-search/index.ts`
+Replace the "Run Scan" button with a smarter flow that works in three ways:
 
-- Add a temporary `console.log(JSON.stringify(items[0]))` to capture the actual API response shape (can be removed after verifying)
-- Extract the real video ID from multiple possible fields: `item.video_id`, `item.id`, `item.aweme_id`
-- Always construct the TikTok page URL as: `https://www.tiktok.com/@{author_handle}/video/{video_id}` instead of using `item.play`
-- Only fall back to `item.play` if no real video ID is available (last resort)
-- Skip videos that have no real video ID rather than inserting broken links
+1. **Has keywords**: Works as before -- picks the next keyword in rotation and scans.
+2. **No keywords**: Instead of erroring, show a dialog/popover that lets the user:
+   - **Type a custom keyword** to scan immediately
+   - **Pick from top suggestions** pulled from the keyword library (e.g., 8-10 popular ones like "nike", "starbucks", "airpods", "lululemon")
+   - The chosen keyword gets auto-saved to their keywords list so future scans rotate through it
 
-### 2. Clean up old broken data (optional)
+## UI Design
 
-Old videos with fake `tt_` prefixed IDs and broken URLs already exist in the database. These can be cleaned up with a database query to delete videos where `video_id LIKE 'tt_%'`, or they will naturally age out.
+Replace the single "Run Scan" button with logic that:
+- If keywords exist: button works immediately (no change)
+- If no keywords: clicking "Run Scan" opens a **Dialog** with:
+  - A text input ("Type a keyword to scan...")
+  - A grid of suggestion chips from the keyword library (curated popular picks)
+  - Clicking a chip or pressing Enter on the input starts the scan with that keyword (and saves it)
 
-## Changes Summary
+## Changes
+
+### 1. Create `src/components/QuickScanDialog.tsx`
+- New dialog component with:
+  - Search input for custom keyword
+  - Grid of ~12 popular keyword suggestions as clickable chips (curated from the library)
+  - On selection: saves keyword to DB via `useAddKeyword`, then triggers scan
+- Popular suggestions: hand-picked recognizable brands from the library (e.g., "nike", "apple", "starbucks", "lululemon", "cerave", "airpods", "stanley cup", "crumbl cookies", "shein haul", "protein coffee", "skincare routine", "gym shark")
+
+### 2. Update `src/hooks/useScan.ts`
+- Add an optional `keywordOverride` parameter to `runScan(keyword?: string)`
+- If `keywordOverride` is provided, use it directly instead of querying the keywords table
+- Remove the error toast for "No keywords" -- the UI handles this case now
+
+### 3. Update `src/pages/Index.tsx` (Dashboard)
+- Import `QuickScanDialog` and `useKeywords`
+- When "Run Scan" is clicked:
+  - If user has active keywords: run scan normally
+  - If no active keywords: open the QuickScanDialog
+- Dialog's onSelect callback: saves keyword + calls `runScan(selectedKeyword)`
+
+## Technical Details
+
+```text
+QuickScanDialog props:
+  - open: boolean
+  - onOpenChange: (open: boolean) => void
+  - onSelectKeyword: (keyword: string) => void
+
+Dashboard flow:
+  1. User clicks "Run Scan"
+  2. Check keywords count
+  3. If > 0: runScan() as normal
+  4. If 0: setShowQuickScan(true)
+  5. User picks/types keyword in dialog
+  6. Save keyword to DB (useAddKeyword)
+  7. runScan(keyword) with override
+  8. Dialog closes
+
+useScan changes:
+  - runScan(keywordOverride?: string)
+  - If override provided, create scan record with that keyword directly
+  - Skip keyword rotation logic when override is used
+```
+
+## Files to Create/Modify
 
 | File | Change |
 |------|--------|
-| `supabase/functions/tiktok-search/index.ts` | Fix URL construction to always build proper TikTok page URLs; add debug logging for API response shape; handle `aweme_id` field |
+| `src/components/QuickScanDialog.tsx` | New -- dialog with keyword input + suggestion chips |
+| `src/hooks/useScan.ts` | Add optional keyword override parameter to `runScan` |
+| `src/pages/Index.tsx` | Add dialog trigger when no keywords exist on scan click |
 
-## Technical Detail
-
-Updated video normalization logic:
-
-```text
-1. Extract real video ID:
-   realId = item.video_id || item.aweme_id || item.id
-
-2. Extract author handle:
-   handle = item.author?.unique_id || item.author?.nickname
-
-3. Build page URL (not play URL):
-   if (realId && handle):
-     url = "https://www.tiktok.com/@{handle}/video/{realId}"
-   else:
-     url = item.play  (fallback, at least links to something)
-
-4. Skip video entirely if no realId (don't generate fake IDs)
-```
-
-This ensures every stored URL points to a real, visitable TikTok page.
