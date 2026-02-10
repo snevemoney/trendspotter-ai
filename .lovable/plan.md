@@ -1,88 +1,37 @@
 
 
-# Trade Alert Notification System + Kalshi Verification
+# Bulk Keyword Seeding System
 
-This plan covers three parts: (1) building a notification system that fires alerts when a trending product has a matching Kalshi market with high probability, (2) verifying the Predictions page loads correctly, and (3) testing the AI chat with prediction market queries.
-
----
-
-## Part 1: Notification System for Social + Prediction Signal Overlap
-
-### Database
-
-Create a `notifications` table to store alerts:
-
-```text
-notifications
-- id (uuid, PK)
-- user_id (uuid, NOT NULL)
-- type (text) -- e.g. "prediction_match", "high_blindspot", "trend_alert"
-- title (text)
-- message (text)
-- trend_id (uuid, nullable, FK to trend_items)
-- metadata (jsonb) -- stores ticker, probability, Kalshi event ticker, etc.
-- read (boolean, default false)
-- created_at (timestamptz)
-```
-
-RLS policies: users can only read/update their own notifications.
-
-### Alert Generation Logic
-
-After each scan completes (in both `useScan.ts` and `scheduled-scan`):
-
-1. For each trend item that has a company match (ticker), call the `kalshi-markets` edge function to search for related events using the brand name and ticker.
-2. If a matching Kalshi event is found with probability >= 65%, create a notification record:
-   - Title: "Prediction Signal: [Brand] ([Ticker])"
-   - Message: "[Brand] is trending on TikTok (score X) and Kalshi market '[market title]' is at Y% probability"
-   - Metadata: `{ ticker, probability, kalshiEventTicker, trendScore, blindspotScore }`
-
-This runs client-side for manual scans and server-side for scheduled scans.
-
-### Notification Bell + Dropdown (Frontend)
-
-Create `src/components/NotificationBell.tsx`:
-- Bell icon in the sidebar header (or top-right of AppLayout)
-- Unread count badge (red dot with number)
-- Click opens a dropdown/popover showing recent notifications
-- Each notification is clickable -- navigates to the relevant trend detail page
-- "Mark all as read" button
-- Notifications sorted by created_at DESC, limit 20
-
-Create `src/hooks/useNotifications.ts`:
-- `useNotifications()` -- fetches unread + recent notifications
-- `useMarkAsRead()` -- marks notification(s) as read
-- `useUnreadCount()` -- returns count of unread notifications (for badge)
-
-### Notifications Page
-
-Create `src/pages/Notifications.tsx`:
-- Full list of all notifications with pagination
-- Filter by type (prediction match, blindspot, etc.)
-- Mark individual or all as read
-- Add to sidebar navigation and App.tsx routes
-
-### Real-time Updates
-
-Enable realtime on the `notifications` table so the bell icon updates instantly when a scheduled scan generates a new alert (without page refresh).
+Currently, keywords are added one at a time through the Settings page. To maximize data coverage, we'll add a massive pre-built keyword library and a bulk-import mechanism.
 
 ---
 
-## Part 2: Verify Predictions Page
+## What You'll Get
 
-After implementation, navigate to `/predictions` and confirm:
-- Markets load from Kalshi API
-- Search input filters markets correctly
-- Category buttons filter by category
-- Event cards show probability bars, volume, and close dates
-- Expanding a card shows all sub-markets
+- A curated library of **1,000+ keywords** organized by category (beauty, fashion, tech, food, fitness, finance, home, travel, entertainment, health, etc.)
+- A **"Seed Keywords"** button on the Settings page that bulk-inserts hundreds of keywords in one click
+- A **bulk paste/import** feature where you can paste a large list of keywords (one per line) and add them all at once
+- Categories displayed as toggleable groups so you can enable/disable entire categories
 
-## Part 3: Verify AI Chat with Predictions
+---
 
-Test these prompts in the AI chat:
-- "what does the market think?"
-- "show me Kalshi predictions"
-- Confirm the response includes prediction market data tables
+## Keyword Categories (1,000+ total)
+
+Each category will contain 50-150 keywords covering:
+
+1. **Beauty / Skincare** -- brand names, product types, viral terms ("glass skin", "slugging", "skin barrier")
+2. **Fashion / Apparel** -- brand names, trend terms ("quiet luxury", "mob wife aesthetic", "capsule wardrobe")
+3. **Tech / Gadgets** -- product names, brand names ("AirPods", "iPad", "Samsung", "mechanical keyboard")
+4. **Food / Beverage** -- viral food brands, trends ("protein coffee", "cottage cheese", "baked oats")
+5. **Fitness / Wellness** -- supplements, equipment, trends ("creatine", "walking pad", "cold plunge")
+6. **Home / Decor** -- viral home products ("LED lights", "cloud couch", "Stanley cup organizer")
+7. **Finance / Investing** -- stock terms, fintech ("dividend stocks", "Robinhood", "FIRE movement")
+8. **Travel** -- travel gear, destinations, hacks ("packing cubes", "airport hack", "hotel hack")
+9. **Entertainment** -- streaming, gaming, pop culture ("Netflix", "BookTok", "vinyl records")
+10. **Health / Supplements** -- wellness brands, ingredients ("magnesium", "ashwagandha", "gut health")
+11. **Baby / Parenting** -- viral parenting products ("Snoo", "baby monitor", "toddler hack")
+12. **Pet** -- pet brands and viral products ("Farmer's Dog", "pet camera", "dog enrichment")
+13. **Signal Phrases** -- cross-category viral phrases ("restock alert", "run don't walk", "sold out", "back in stock", "tiktok made me buy", "dupe alert", "holy grail", "game changer")
 
 ---
 
@@ -90,99 +39,54 @@ Test these prompts in the AI chat:
 
 ### Files to Create
 
-- `supabase/migrations/[timestamp]_notifications.sql` -- notifications table + RLS + realtime
-- `src/hooks/useNotifications.ts` -- queries + mutations for notifications
-- `src/components/NotificationBell.tsx` -- bell icon with dropdown
-- `src/pages/Notifications.tsx` -- full notifications page
+- **`src/lib/keyword-library.ts`** -- Contains the full keyword library as a structured constant: `Record<string, string[]>` mapping category names to keyword arrays. This keeps the data in-code with zero database overhead until the user seeds them.
 
 ### Files to Modify
 
-- `src/hooks/useScan.ts` -- after scan completion, check for Kalshi matches and create notifications
-- `supabase/functions/scheduled-scan/index.ts` -- same alert generation for automated scans
-- `src/components/AppSidebar.tsx` -- add NotificationBell to header, add Notifications nav item
-- `src/components/AppLayout.tsx` -- optionally place bell in top bar
-- `src/App.tsx` -- add `/notifications` route
-- `src/integrations/supabase/types.ts` -- auto-updated with new table
+- **`src/hooks/useKeywords.ts`** -- Add a new `useBulkAddKeywords()` mutation that accepts an array of strings and batch-inserts them (in chunks of 100 to stay within query limits), skipping duplicates.
 
-### Alert Matching Logic (in useScan.ts)
+- **`src/pages/Settings.tsx`** -- Add three new UI elements to the Keywords card:
+  1. **"Seed Library" button** -- Opens a dialog showing keyword categories with checkboxes. User selects categories, clicks "Add Selected", and all keywords from those categories are bulk-inserted.
+  2. **"Bulk Paste" button** -- Opens a dialog with a textarea where users can paste keywords (one per line) and import them all at once.
+  3. **Keyword count badge** -- Shows total count (e.g., "1,247 keywords") so users can see how many they have.
 
-```typescript
-// After scan completes, check for prediction matches
-const trendTickers = [...new Set(companyMatches.map(m => m.ticker))];
-for (const ticker of trendTickers) {
-  const kalshiRes = await fetch(
-    `${SUPABASE_URL}/functions/v1/kalshi-markets?action=events&search=${ticker}&limit=5&status=open`,
-    { headers: { Authorization: `Bearer ${ANON_KEY}` } }
-  );
-  const kalshiData = await kalshiRes.json();
-  const events = kalshiData?.events || [];
-  for (const event of events) {
-    const market = event.markets?.[0];
-    const prob = market ? Math.round(market.last_price * 100) : 0;
-    if (prob >= 65) {
-      await supabase.from("notifications").insert({
-        user_id: user.id,
-        type: "prediction_match",
-        title: `Prediction Signal: ${ticker}`,
-        message: `${brandName} trending (score ${score}) + "${event.title}" at ${prob}% probability`,
-        trend_id: trendId,
-        metadata: { ticker, probability: prob, kalshiEvent: event.event_ticker }
-      });
-    }
-  }
-}
+- **`src/lib/mock-data.ts`** -- Expand the BRANDS array to include more brands that correspond to the new keyword categories (adding ~80 more brand-to-company mappings with tickers), so scans against these new keywords produce richer company match data.
+
+### Bulk Insert Logic
+
+```text
+useBulkAddKeywords():
+  1. Accept string[] of keywords
+  2. Fetch existing keywords for user (to deduplicate)
+  3. Filter out duplicates
+  4. Chunk remaining into batches of 100
+  5. Insert each batch with incrementing sort_order
+  6. Show toast: "Added X new keywords (Y duplicates skipped)"
+  7. Invalidate keywords query
 ```
 
-### Notification Bell Component
+### Seed Dialog Flow
 
-```typescript
-// Unread count query with realtime subscription
-const channel = supabase
-  .channel('notifications')
-  .on('postgres_changes', {
-    event: 'INSERT',
-    schema: 'public',
-    table: 'notifications',
-    filter: `user_id=eq.${user.id}`,
-  }, () => {
-    queryClient.invalidateQueries({ queryKey: ["notifications"] });
-  })
-  .subscribe();
+```text
+User clicks "Seed Library"
+  -> Dialog opens with category list + checkboxes
+  -> Each category shows count (e.g., "Beauty / Skincare (127)")
+  -> "Select All" / "Deselect All" toggle
+  -> "Add Selected" button
+  -> Bulk insert runs
+  -> Dialog closes, keyword list refreshes
 ```
 
-### Database Migration SQL
+### Expanded Brand Mappings
 
-```sql
-CREATE TABLE public.notifications (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id uuid NOT NULL,
-  type text NOT NULL DEFAULT 'prediction_match',
-  title text NOT NULL,
-  message text NOT NULL,
-  trend_id uuid REFERENCES public.trend_items(id) ON DELETE SET NULL,
-  metadata jsonb DEFAULT '{}',
-  read boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+The BRANDS array in mock-data.ts will grow from 20 to ~100 entries, adding companies like:
+- Tech: Samsung (005930.KS), Sony (SONY), Google/Alphabet (GOOGL), Meta (META), Amazon (AMZN)
+- Fashion: Adidas (ADS.DE), Under Armour (UAA), Gap (GAP), H&M (HM-B.ST), Zara/Inditex (ITX.MC)
+- Food: Coca-Cola (KO), PepsiCo (PEP), Chipotle (CMG), McDonald's (MCD)
+- Fitness: Peloton (PTON), Planet Fitness (PLNT), Garmin (GRMN)
+- Home: Wayfair (W), Restoration Hardware (RH), Williams-Sonoma (WSM)
+- Finance: Robinhood (HOOD), Coinbase (COIN), SoFi (SOFI)
+- And many more...
 
-ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Users can read own notifications"
-  ON public.notifications FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can update own notifications"
-  ON public.notifications FOR UPDATE
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert own notifications"
-  ON public.notifications FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-
-CREATE INDEX idx_notifications_user_unread
-  ON public.notifications(user_id, read)
-  WHERE read = false;
-```
+This ensures that when scans run against the new keywords, the system generates more company matches with real tickers, which in turn produces more Kalshi prediction overlap signals.
 
