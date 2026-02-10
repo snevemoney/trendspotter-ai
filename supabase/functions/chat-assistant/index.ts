@@ -145,6 +145,33 @@ serve(async (req: Request) => {
       if (tickers.length) contextBlock += `- Tickers: ${tickers.join(", ")}\n`;
     }
 
+    // --- Fetch Kalshi prediction markets for context ---
+    let kalshiBlock = "";
+    try {
+      const tickers = companyMatches?.map((m: any) => m.ticker).filter(Boolean) || [];
+      const kalshiUrl = `${supabaseUrl}/functions/v1/kalshi-markets?action=events&limit=10&status=open`;
+      const kalshiRes = await fetch(kalshiUrl, {
+        headers: { Authorization: `Bearer ${serviceRoleKey}` },
+      });
+      if (kalshiRes.ok) {
+        const kalshiData = await kalshiRes.json();
+        const events = kalshiData?.events || [];
+        if (events.length > 0) {
+          kalshiBlock += `\n## Prediction Markets (Kalshi - Live)\n`;
+          kalshiBlock += `| Market | Probability | Volume |\n|---|---|---|\n`;
+          for (const ev of events.slice(0, 8)) {
+            const m = ev.markets?.[0];
+            const prob = m ? Math.round(m.last_price * 100) + "% Yes" : "N/A";
+            const vol = m?.volume ? m.volume.toLocaleString() : "—";
+            kalshiBlock += `| ${ev.title} | ${prob} | ${vol} |\n`;
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch Kalshi for chat context:", e);
+    }
+    contextBlock += kalshiBlock;
+
     // --- System prompt ---
     const systemPrompt = `You are the Social Arbitrage Scan Intelligence Assistant. You help users analyze TikTok trend data for consumer-to-stock market signal detection, with special expertise in finding "blindspots" — stocks connected to viral products that are NOT on Wall Street's radar.
 
@@ -165,6 +192,20 @@ BLINDSPOT REPORT FORMAT:
 
 ## Under-the-Radar Connections:
 - Trending product → parent company **TICK** — why it's invisible to most traders
+
+PREDICTION MARKETS (KALSHI):
+- You have access to live Kalshi prediction market data in the context below
+- When asked about "predictions", "what does the market think", "Kalshi", or "bets", reference this data
+- Cross-reference social trends with prediction markets for higher-conviction analysis
+- Format prediction market data as:
+
+## 📊 Prediction Market Signals
+| Market | Probability | Volume |
+|--------|-------------|--------|
+| Market question | XX% Yes | Volume |
+
+## Social + Prediction Overlap:
+- Brand trending (engagement) + "Related market question" at XX% Yes
 
 FORMAT RULES:
 - When presenting scan results or summaries, format them like professional scan reports

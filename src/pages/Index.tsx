@@ -6,6 +6,7 @@ import { ScoreBadge } from "@/components/ScoreBadge";
 import { FreshnessIndicator } from "@/components/FreshnessIndicator";
 import { ScannerStatusCard } from "@/components/ScannerStatusCard";
 import { BlindspotRadar } from "@/components/BlindspotRadar";
+import { PredictionCard } from "@/components/PredictionCard";
 import { useDashboardStats, useTrends, useTrendAction } from "@/hooks/useTrends";
 import { useAddToWatchlist } from "@/hooks/useWatchlist";
 import { useScan } from "@/hooks/useScan";
@@ -104,6 +105,7 @@ export default function Dashboard() {
           <div className="space-y-4">
             <ScannerStatusCard />
             <BlindspotRadar />
+            <PredictionCard />
           </div>
           <div className="md:col-span-4 grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPICard
