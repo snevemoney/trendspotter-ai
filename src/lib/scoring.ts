@@ -103,3 +103,93 @@ export function getFreshnessColor(date: Date) {
   if (daysAgo <= 7) return "text-fresh-week";
   return "text-fresh-older";
 }
+
+// --- Blindspot Detection ---
+
+const WELL_KNOWN_TICKERS = [
+  "AAPL", "NKE", "SBUX", "AMZN", "GOOGL", "META", "MSFT", "TSLA",
+  "GOOG", "NVDA", "JPM", "V", "WMT", "DIS", "KO", "PEP", "MCD",
+  "COST", "HD", "TGT", "LULU",
+];
+
+const FOREIGN_EXCHANGES = ["Euronext", "TSE", "LSE", "HKEX", "SSE", "ASX"];
+
+export interface BlindspotInput {
+  score: number;
+  ticker?: string | null;
+  exchange?: string | null;
+  companyName?: string | null;
+  totalLikes: number;
+  videoCount: number;
+  hoursOld: number;
+}
+
+export function calculateBlindspotScore(input: BlindspotInput): {
+  blindspotScore: number;
+  reason: string;
+} {
+  // Must have a ticker to be a blindspot opportunity
+  if (!input.ticker) {
+    return { blindspotScore: 0, reason: "No ticker mapped" };
+  }
+
+  let bsScore = 0;
+  const reasons: string[] = [];
+
+  // 1. Engagement vs name recognition (0-30 pts)
+  const isWellKnown = WELL_KNOWN_TICKERS.includes(input.ticker.toUpperCase());
+  const engagementTotal = input.totalLikes;
+
+  if (!isWellKnown && engagementTotal > 100000) {
+    bsScore += 30;
+    reasons.push("high engagement, lesser-known ticker");
+  } else if (!isWellKnown && engagementTotal > 10000) {
+    bsScore += 20;
+    reasons.push("moderate engagement, lesser-known ticker");
+  } else if (!isWellKnown && engagementTotal > 1000) {
+    bsScore += 10;
+    reasons.push("some engagement, lesser-known ticker");
+  } else if (isWellKnown) {
+    bsScore += 0;
+    reasons.push("well-known ticker");
+  }
+
+  // 2. Company obscurity (0-30 pts)
+  const isForeignExchange = input.exchange && FOREIGN_EXCHANGES.includes(input.exchange);
+  if (isForeignExchange) {
+    bsScore += 25;
+    reasons.push(`foreign listing (${input.exchange})`);
+  } else if (!isWellKnown) {
+    bsScore += 15;
+    reasons.push("under-the-radar company");
+  }
+
+  // 3. Recency (0-20 pts)
+  if (input.hoursOld <= 24) {
+    bsScore += 20;
+    reasons.push("just emerging");
+  } else if (input.hoursOld <= 72) {
+    bsScore += 15;
+    reasons.push("recently emerged");
+  } else if (input.hoursOld <= 168) {
+    bsScore += 8;
+  }
+
+  // 4. Trend acceleration (0-20 pts)
+  if (input.videoCount >= 5) {
+    bsScore += 20;
+    reasons.push("rapid multi-video trend");
+  } else if (input.videoCount >= 3) {
+    bsScore += 12;
+    reasons.push("accelerating trend");
+  } else if (input.videoCount >= 2) {
+    bsScore += 5;
+  }
+
+  bsScore = Math.min(100, Math.max(0, bsScore));
+
+  return {
+    blindspotScore: bsScore,
+    reason: reasons.slice(0, 3).join(", "),
+  };
+}

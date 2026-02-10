@@ -10,6 +10,7 @@ export function useTrends(filters?: {
   maxScore?: number;
   mappedOnly?: boolean;
   status?: string;
+  blindspotsOnly?: boolean;
 }) {
   const { user } = useAuth();
 
@@ -48,6 +49,10 @@ export function useTrends(filters?: {
         results = results.filter(
           (t: any) => t.company_matches && t.company_matches.length > 0
         );
+      }
+
+      if (filters?.blindspotsOnly) {
+        results = results.filter((t: any) => (t.blindspot_score || 0) >= 40);
       }
 
       return results;

@@ -80,6 +80,34 @@ const SIGNAL_PHRASES = [
   "out of stock", "restocked", "limited edition",
 ];
 
+const WELL_KNOWN_TICKERS = [
+  "AAPL", "NKE", "SBUX", "AMZN", "GOOGL", "META", "MSFT", "TSLA",
+  "GOOG", "NVDA", "JPM", "V", "WMT", "DIS", "KO", "PEP", "MCD",
+  "COST", "HD", "TGT", "LULU",
+];
+const FOREIGN_EXCHANGES = ["Euronext", "TSE", "LSE", "HKEX", "SSE", "ASX"];
+
+function calculateBlindspotScore(input: {
+  ticker?: string | null; exchange?: string | null;
+  totalLikes: number; videoCount: number; hoursOld: number;
+}): { blindspotScore: number } {
+  if (!input.ticker) return { blindspotScore: 0 };
+  let s = 0;
+  const isWellKnown = WELL_KNOWN_TICKERS.includes(input.ticker.toUpperCase());
+  if (!isWellKnown && input.totalLikes > 100000) s += 30;
+  else if (!isWellKnown && input.totalLikes > 10000) s += 20;
+  else if (!isWellKnown && input.totalLikes > 1000) s += 10;
+  if (input.exchange && FOREIGN_EXCHANGES.includes(input.exchange)) s += 25;
+  else if (!isWellKnown) s += 15;
+  if (input.hoursOld <= 24) s += 20;
+  else if (input.hoursOld <= 72) s += 15;
+  else if (input.hoursOld <= 168) s += 8;
+  if (input.videoCount >= 5) s += 20;
+  else if (input.videoCount >= 3) s += 12;
+  else if (input.videoCount >= 2) s += 5;
+  return { blindspotScore: Math.min(100, Math.max(0, s)) };
+}
+
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -285,10 +313,17 @@ Deno.serve(async (req: Request) => {
         });
 
         if (existingTrend) {
+          const hoursOld = (Date.now() - video.postedAt.getTime()) / 3600000;
+          const { blindspotScore } = calculateBlindspotScore({
+            ticker: companyMatch?.ticker, exchange: companyMatch?.exchange,
+            totalLikes: video.likes + (existingTrend.total_likes || 0),
+            videoCount, hoursOld,
+          });
           await supabase
             .from("trend_items")
             .update({
               score, label, signal_phrases: signals,
+              blindspot_score: blindspotScore,
               last_seen: new Date().toISOString(),
               video_count: videoCount,
               total_likes: (existingTrend.total_likes || 0) + video.likes,
@@ -301,6 +336,11 @@ Deno.serve(async (req: Request) => {
             trend_id: existingTrend.id, video_id: dbVideo.id,
           });
         } else {
+          const hoursOldNew = (Date.now() - video.postedAt.getTime()) / 3600000;
+          const { blindspotScore: bsNew } = calculateBlindspotScore({
+            ticker: companyMatch?.ticker, exchange: companyMatch?.exchange,
+            totalLikes: video.likes, videoCount: 1, hoursOld: hoursOldNew,
+          });
           const { data: newTrend } = await supabase
             .from("trend_items")
             .insert({
@@ -309,6 +349,7 @@ Deno.serve(async (req: Request) => {
               entity_type: "brand",
               summary: `${video.brand} ${video.product} trending on TikTok via "${current.keyword}" keyword.`,
               score, label, signal_phrases: signals,
+              blindspot_score: bsNew,
               video_count: 1,
               total_likes: video.likes,
               total_comments: video.comments,

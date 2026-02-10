@@ -66,7 +66,7 @@ serve(async (req: Request) => {
     // 4. Top trending items (last 50 by score)
     const { data: trends } = await supabase
       .from("trend_items")
-      .select("primary_entity, entity_type, score, label, signal_phrases, total_likes, total_comments, total_shares, video_count, summary, first_seen, last_seen")
+      .select("primary_entity, entity_type, score, label, signal_phrases, total_likes, total_comments, total_shares, video_count, summary, first_seen, last_seen, blindspot_score")
       .eq("user_id", user.id)
       .order("score", { ascending: false })
       .limit(50);
@@ -108,11 +108,20 @@ serve(async (req: Request) => {
 
     if (trends?.length) {
       contextBlock += `\n## Current Trend Data (${trends.length} items, sorted by score)\n`;
-      contextBlock += `| Brand/Product | Score | Views (likes) | Signal Phrases | Videos |\n`;
-      contextBlock += `|---|---|---|---|---|\n`;
+      contextBlock += `| Brand/Product | Score | Blindspot | Views (likes) | Signal Phrases | Videos |\n`;
+      contextBlock += `|---|---|---|---|---|---|\n`;
       for (const t of trends.slice(0, 25)) {
         const signals = t.signal_phrases?.join(", ") || "—";
-        contextBlock += `| ${t.primary_entity} | ${t.score}/100 (${t.label}) | ${formatNumber(t.total_likes || 0)} likes, ${formatNumber(t.total_comments || 0)} comments | ${signals} | ${t.video_count || 0} |\n`;
+        contextBlock += `| ${t.primary_entity} | ${t.score}/100 (${t.label}) | ${t.blindspot_score || 0}/100 | ${formatNumber(t.total_likes || 0)} likes, ${formatNumber(t.total_comments || 0)} comments | ${signals} | ${t.video_count || 0} |\n`;
+      }
+
+      // Blindspot highlights
+      const blindspots = trends.filter((t: any) => (t.blindspot_score || 0) >= 40).sort((a: any, b: any) => (b.blindspot_score || 0) - (a.blindspot_score || 0));
+      if (blindspots.length > 0) {
+        contextBlock += `\n## Blindspot Opportunities (${blindspots.length} items with score ≥ 40)\n`;
+        for (const b of blindspots.slice(0, 10)) {
+          contextBlock += `- **${b.primary_entity}** — Blindspot ${b.blindspot_score}/100, ${formatNumber(b.total_likes || 0)} likes, ${b.video_count || 0} videos\n`;
+        }
       }
     }
 
@@ -137,9 +146,25 @@ serve(async (req: Request) => {
     }
 
     // --- System prompt ---
-    const systemPrompt = `You are the Social Arbitrage Scan Intelligence Assistant. You help users analyze TikTok trend data for consumer-to-stock market signal detection.
+    const systemPrompt = `You are the Social Arbitrage Scan Intelligence Assistant. You help users analyze TikTok trend data for consumer-to-stock market signal detection, with special expertise in finding "blindspots" — stocks connected to viral products that are NOT on Wall Street's radar.
 
 You have access to the user's real-time scan data below. Use it to answer questions, generate reports, and provide insights.
+
+BLINDSPOT DETECTION:
+- A "blindspot" is a stock/ticker connected to a viral consumer trend that most traders overlook
+- High blindspot scores (60+) mean: lesser-known ticker + high social engagement + recent trend acceleration
+- Well-known mega-caps (AAPL, NKE, SBUX, MSFT, etc.) score LOW because everyone already watches them
+- Foreign-listed parent companies (e.g., Shiseido 4911.T owning Drunk Elephant) are prime blindspots
+- When asked about blindspots, "what's hiding", "under the radar", or "overlooked" stocks, generate a Blindspot Report
+
+BLINDSPOT REPORT FORMAT:
+## 🔍 Blindspot Radar
+| Brand | Ticker | Blindspot Score | Why It's Hidden |
+|-------|--------|-----------------|-----------------|
+| Brand Name | TICK | 85 | Reason it's overlooked |
+
+## Under-the-Radar Connections:
+- Trending product → parent company **TICK** — why it's invisible to most traders
 
 FORMAT RULES:
 - When presenting scan results or summaries, format them like professional scan reports
@@ -172,6 +197,7 @@ IMPORTANT:
 - If no data exists yet, say so and suggest running a scan
 - Be actionable — suggest what to watch, what looks hot, what's cooling off
 - Mention if items on the user's watchlist are trending
+- Proactively highlight blindspot opportunities when relevant
 
 ---
 

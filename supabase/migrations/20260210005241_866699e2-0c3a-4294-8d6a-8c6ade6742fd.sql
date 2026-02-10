@@ -1,0 +1,1 @@
+ALTER TABLE public.trend_items ADD COLUMN blindspot_score integer DEFAULT 0;
