@@ -1,11 +1,38 @@
 import { useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { generateMockVideos, getBrandCompanyMatch } from "@/lib/mock-data";
 import { calculateTrendScore, calculateBlindspotScore } from "@/lib/scoring";
 import { toast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { checkPredictionAlerts } from "@/lib/prediction-alerts";
+
+interface TikTokVideo {
+  videoId: string;
+  url: string;
+  caption: string;
+  author: string;
+  postedAt: string;
+  likes: number;
+  comments: number;
+  shares: number;
+}
+
+interface ExtractedEntity {
+  text: string;
+  type: "brand" | "product";
+  confidence: number;
+  captionIndex: number;
+}
+
+interface TickerMapping {
+  entity: string;
+  company: string;
+  ticker: string | null;
+  exchange: string | null;
+  confidence: number;
+  reasoning: string;
+  source: string;
+}
 
 export function useScan() {
   const { user } = useAuth();
@@ -30,7 +57,6 @@ export function useScan() {
         return;
       }
 
-      // Get last scan to determine next keyword
       const { data: lastScan } = await supabase
         .from("scans")
         .select("keyword_text")
@@ -58,22 +84,41 @@ export function useScan() {
 
       if (scanError) throw scanError;
 
-      // Generate mock videos
-      const mockVideos = generateMockVideos(keyword.keyword, 3 + Math.floor(Math.random() * 4));
+      // Step 1: Fetch real TikTok videos
+      const { data: tiktokData, error: tiktokError } = await supabase.functions.invoke("tiktok-search", {
+        body: { keyword: keyword.keyword, count: 10 },
+      });
 
-      // Insert videos
-      const videoInserts = mockVideos.map((v) => ({
+      if (tiktokError) throw new Error(`TikTok search failed: ${tiktokError.message}`);
+      if (tiktokData?.error) throw new Error(`TikTok search error: ${tiktokData.error}`);
+
+      const videos: TikTokVideo[] = tiktokData?.videos || [];
+
+      if (!videos.length) {
+        await supabase.from("scans").update({
+          status: "completed" as const,
+          videos_found: 0,
+          entities_extracted: 0,
+          completed_at: new Date().toISOString(),
+        }).eq("id", scan.id);
+
+        toast({ title: "Scan complete", description: `No videos found for "${keyword.keyword}".` });
+        return;
+      }
+
+      // Step 2: Insert videos into DB
+      const videoInserts = videos.map((v) => ({
         scan_id: scan.id,
         user_id: user.id,
         video_id: v.videoId,
         url: v.url,
         caption: v.caption,
         author: v.author,
-        posted_at: v.postedAt.toISOString(),
+        posted_at: v.postedAt,
         likes: v.likes,
         comments: v.comments,
         shares: v.shares,
-        keyword: v.keyword,
+        keyword: keyword.keyword,
       }));
 
       const { data: insertedVideos, error: videoError } = await supabase
@@ -83,8 +128,39 @@ export function useScan() {
 
       if (videoError) throw videoError;
 
-      // Extract entities and create/update trends
-      for (const video of mockVideos) {
+      // Step 3: Extract entities from captions using AI
+      const captions = videos.map((v) => v.caption).filter(Boolean);
+      const { data: entityData, error: entityError } = await supabase.functions.invoke("extract-entities", {
+        body: { captions },
+      });
+
+      if (entityError) console.error("Entity extraction error:", entityError);
+      const entities: ExtractedEntity[] = entityData?.entities || [];
+
+      // Step 4: Get unique brand entities and map to tickers
+      const brandEntities = entities.filter((e) => e.type === "brand");
+      const uniqueBrands = [...new Set(brandEntities.map((e) => e.text))];
+
+      let tickerMappings: TickerMapping[] = [];
+      if (uniqueBrands.length > 0) {
+        const { data: tickerData, error: tickerError } = await supabase.functions.invoke("map-ticker", {
+          body: { entities: uniqueBrands },
+        });
+        if (tickerError) console.error("Ticker mapping error:", tickerError);
+        tickerMappings = tickerData?.mappings || [];
+      }
+
+      // Build a lookup map: brand name -> ticker mapping
+      const tickerMap = new Map<string, TickerMapping>();
+      for (const m of tickerMappings) {
+        tickerMap.set(m.entity.toLowerCase(), m);
+      }
+
+      // Step 5: Insert entities and create/update trends
+      for (const entity of brandEntities) {
+        const video = videos[entity.captionIndex];
+        if (!video) continue;
+
         const dbVideo = insertedVideos?.find((v) => v.video_id === video.videoId);
         if (!dbVideo) continue;
 
@@ -92,46 +168,44 @@ export function useScan() {
         await supabase.from("extracted_entities").insert({
           video_id: dbVideo.id,
           user_id: user.id,
-          entity_text: video.brand,
+          entity_text: entity.text,
           entity_type: "brand" as const,
-          confidence: 0.85 + Math.random() * 0.15,
+          confidence: entity.confidence,
         });
 
-        // Check if trend already exists for this brand
+        // Check existing trend
         const { data: existingTrend } = await supabase
           .from("trend_items")
           .select("*")
           .eq("user_id", user.id)
-          .ilike("primary_entity", video.brand)
+          .ilike("primary_entity", entity.text)
           .maybeSingle();
 
-        const companyMatch = getBrandCompanyMatch(video.brand);
+        const mapping = tickerMap.get(entity.text.toLowerCase());
         const videoCount = (existingTrend?.video_count || 0) + 1;
 
         const { score, label, signals } = calculateTrendScore({
-          postedAt: video.postedAt,
+          postedAt: new Date(video.postedAt),
           caption: video.caption,
           likes: video.likes,
           comments: video.comments,
           shares: video.shares,
           videoCount,
-          hasCompanyMatch: !!companyMatch,
+          hasCompanyMatch: !!(mapping?.ticker),
         });
 
-        // Calculate blindspot score
-        const hoursOld = (Date.now() - video.postedAt.getTime()) / 3600000;
+        const hoursOld = (Date.now() - new Date(video.postedAt).getTime()) / 3600000;
         const { blindspotScore } = calculateBlindspotScore({
           score,
-          ticker: companyMatch?.ticker,
-          exchange: companyMatch?.exchange,
-          companyName: companyMatch?.company,
+          ticker: mapping?.ticker,
+          exchange: mapping?.exchange,
+          companyName: mapping?.company,
           totalLikes: video.likes + (existingTrend?.total_likes || 0),
           videoCount,
           hoursOld,
         });
 
         if (existingTrend) {
-          // Update existing trend
           await supabase
             .from("trend_items")
             .update({
@@ -147,20 +221,18 @@ export function useScan() {
             })
             .eq("id", existingTrend.id);
 
-          // Link video to trend
           await supabase.from("trend_video_links").insert({
             trend_id: existingTrend.id,
             video_id: dbVideo.id,
           });
         } else {
-          // Create new trend
           const { data: newTrend } = await supabase
             .from("trend_items")
             .insert({
               user_id: user.id,
-              primary_entity: video.brand,
+              primary_entity: entity.text,
               entity_type: "brand" as const,
-              summary: `${video.brand} ${video.product} trending on TikTok via "${keyword.keyword}" keyword.`,
+              summary: `${entity.text} trending on TikTok via "${keyword.keyword}" keyword.`,
               score,
               label,
               signal_phrases: signals,
@@ -174,23 +246,21 @@ export function useScan() {
             .single();
 
           if (newTrend) {
-            // Link video
             await supabase.from("trend_video_links").insert({
               trend_id: newTrend.id,
               video_id: dbVideo.id,
             });
 
-            // Auto-create company match if we have one
-            if (companyMatch) {
+            if (mapping?.ticker) {
               await supabase.from("company_matches").insert({
                 trend_id: newTrend.id,
                 user_id: user.id,
-                company_name: companyMatch.company,
-                ticker: companyMatch.ticker,
-                exchange: companyMatch.exchange,
-                match_confidence: 0.8 + Math.random() * 0.2,
-                reasoning: `${video.brand} is a product/brand of ${companyMatch.company} (${companyMatch.ticker}).`,
-                source: "mock",
+                company_name: mapping.company,
+                ticker: mapping.ticker,
+                exchange: mapping.exchange,
+                match_confidence: mapping.confidence,
+                reasoning: mapping.reasoning,
+                source: mapping.source,
               });
             }
           }
@@ -202,18 +272,18 @@ export function useScan() {
         .from("scans")
         .update({
           status: "completed" as const,
-          videos_found: mockVideos.length,
-          entities_extracted: mockVideos.length,
+          videos_found: videos.length,
+          entities_extracted: brandEntities.length,
           completed_at: new Date().toISOString(),
         })
         .eq("id", scan.id);
 
-      // Invalidate queries so dashboard updates immediately
+      // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ["trends"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
       queryClient.invalidateQueries({ queryKey: ["scanner-status"] });
 
-      // Check for prediction market matches and generate alerts
+      // Check prediction alerts
       try {
         const { data: trendMatches } = await supabase
           .from("company_matches")
@@ -239,7 +309,7 @@ export function useScan() {
 
       toast({
         title: `Scan complete: "${keyword.keyword}"`,
-        description: `Found ${mockVideos.length} videos with ${new Set(mockVideos.map((v) => v.brand)).size} brands.`,
+        description: `Found ${videos.length} videos with ${uniqueBrands.length} brands detected.`,
       });
     } catch (err: any) {
       console.error("Scan error:", err);
