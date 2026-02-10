@@ -1,133 +1,168 @@
 
 
-# Blindspot Detection -- Finding Hidden Stock Signals
+# Prediction Markets Integration -- Kalshi Data Feed
 
-## The Concept
+## What This Adds
 
-"Blindspots" are stocks connected to products that are blowing up on TikTok but **not yet on Wall Street's radar**. The scanner already captures consumer trends and maps them to tickers -- this feature adds a layer of intelligence that specifically highlights the **overlooked** opportunities.
+A prediction markets layer that connects your social trend data to real-world event betting markets on Kalshi. When your scanner detects a brand trending on TikTok, the app will automatically check if there are related prediction markets (e.g., "Will inflation exceed 3%?", "Will the Fed cut rates?") and surface them alongside your trend data. This creates a powerful signal: social buzz + market sentiment = better conviction.
 
-## What Changes
+---
 
-### 1. Blindspot Score (new metric per trend)
+## How It Works
 
-Add a "blindspot score" alongside the existing confidence score. A trend is a "blindspot" when:
-- **High social engagement** (lots of TikTok views/likes) but the mapped ticker is **not a major household name** (not AAPL, NKE, etc.)
-- **No mainstream news coverage** -- smaller-cap or lesser-known parent companies (e.g., Olaplex/OLPX, Deckers/DECK, e.l.f./ELF)
-- **Rising fast** -- appeared recently with accelerating engagement
-- **Mapped to a public company** -- must have a tradeable ticker
+### 1. Kalshi Markets Page (`/predictions`)
 
-The blindspot score will be calculated in the scoring utility and stored on each trend item.
+A new page accessible from the sidebar showing:
+- Live prediction markets pulled from Kalshi's public API
+- Categories relevant to your trading: Economics, Tech, Consumer, Entertainment
+- Market price (interpreted as probability), volume, and close date
+- Quick filters by category and search
+- Click any market to see full details and orderbook depth
 
-### 2. Dashboard "Blindspot Radar" Card
+### 2. Trend-to-Prediction Matching
 
-A new card on the Dashboard (next to Scanner Status) that highlights the top 3-5 blindspot trends:
-- Shows brand name, ticker, blindspot score, and a short reason like "Parent company under-the-radar, 250K TikTok engagement"
-- Visual indicator (radar/eye icon) to distinguish from regular trends
-- Click to navigate to trend detail
+When viewing a trend detail page or the dashboard, the app will show related Kalshi markets:
+- Example: "Starbucks" trending on TikTok --> show "Will SBUX exceed $X?" or related consumer sentiment markets
+- Example: "Inflation" keywords in trends --> show Fed rate / CPI markets
+- Matching is done by keyword overlap between trend entities and Kalshi event titles
 
-### 3. AI Chat Blindspot Analysis
+### 3. AI Chat Enhancement
 
-Enhance the chat-assistant system prompt so the AI can:
-- Respond to prompts like "show me blindspots" or "what's hiding in the data?"
-- Cross-reference trends to identify which mapped tickers are lesser-known vs. household names
-- Provide a structured "Blindspot Report" format:
+The AI assistant will be able to reference Kalshi prediction markets when analyzing trends:
+- "What does Kalshi say about the economy right now?"
+- "Are there any prediction markets related to my trending tickers?"
+- Combined reports showing social signals + market probability for higher-conviction plays
 
-```
-## Blindspot Radar
-| Brand | Ticker | Blindspot Score | Why It's Hidden |
-|-------|--------|-----------------|-----------------|
-| Olaplex | OLPX | 85 | Hair care viral on TikTok, stock down 40% YTD |
-| e.l.f. | ELF | 78 | Budget beauty dominating Gen Z, often overlooked |
+### 4. Dashboard Prediction Card
 
-## Under-the-Radar Connections:
-- Ugg boots trending -> parent company **DECK** (Deckers) rarely in headlines
-- Drunk Elephant -> owned by **Shiseido (4911.T)**, foreign listing = invisible to US traders
-```
-
-### 4. Trends Page Blindspot Filter
-
-Add a "Blindspots Only" toggle to the Trends page filters that shows only trends with a high blindspot score, giving a focused view of hidden opportunities.
+A compact card on the dashboard showing 3-5 "hot" prediction markets that relate to your current trend data.
 
 ---
 
 ## Implementation Steps
 
-### Step 1: Blindspot Scoring Logic
+### Step 1: Kalshi API Edge Function
 
-Update `src/lib/scoring.ts` to add a `calculateBlindspotScore()` function:
-- **Engagement vs. name recognition** (0-30 pts): High engagement + non-mega-cap parent = more points
-- **Company obscurity** (0-30 pts): Foreign exchanges, small-cap, or lesser-known parent companies score higher
-- **Recency** (0-20 pts): Newer trends score higher (just emerging = bigger blindspot)
-- **Trend acceleration** (0-20 pts): Multiple videos in short timeframe suggests rapid growth
+Create `supabase/functions/kalshi-markets/index.ts`:
+- Proxies requests to Kalshi's public API (`https://api.elections.kalshi.com/trade-api/v2`)
+- No authentication needed -- Kalshi's market data endpoints are public
+- Supports fetching:
+  - Events list with filters (category, status)
+  - Individual market details
+  - Orderbook data for specific markets
+- Caches results briefly to avoid hammering the API
+- Returns cleaned, formatted data to the frontend
 
-Maintain a list of "well-known" tickers (AAPL, NKE, SBUX, etc.) that score LOW on blindspot since everyone already watches these.
+### Step 2: Predictions Page
 
-### Step 2: Database -- Add blindspot_score column
+Create `src/pages/Predictions.tsx`:
+- Grid/list of active Kalshi markets
+- Each card shows: Title, probability (yes price), volume, close date
+- Category filter tabs (Economics, Tech, Consumer, Entertainment, Politics)
+- Search bar to find specific markets
+- Color-coded probability bars (green for high "yes", red for high "no")
+- Click to expand for orderbook depth and event description
 
-Add a `blindspot_score` integer column to `trend_items` table (default 0). This gets populated during scan alongside the existing confidence score.
+### Step 3: Prediction Matching Hook
 
-### Step 3: Update Scan Logic
+Create `src/hooks/useKalshiMarkets.ts`:
+- `useKalshiMarkets(filters)` -- fetches markets with optional category/search filters
+- `useRelatedPredictions(trendEntity)` -- given a brand/product name, finds related Kalshi markets by keyword matching against event titles and descriptions
+- Caching via React Query with 5-minute stale time
 
-Update both `useScan.ts` (manual scans) and `scheduled-scan` (auto scans) to calculate and store the blindspot score when processing each trend.
+### Step 4: Dashboard Integration
 
-### Step 4: Blindspot Radar Component
+Create `src/components/PredictionCard.tsx`:
+- Queries Kalshi for markets related to the user's current trending tickers/brands
+- Shows top 3-5 relevant markets with probability and volume
+- "View All" link to the Predictions page
 
-Create `src/components/BlindspotRadar.tsx`:
-- Queries top trends ordered by `blindspot_score DESC`
-- Displays as a compact card on Dashboard
-- Shows ticker, brand, score, and a one-line explanation
-- Radar/target icon for visual identity
+### Step 5: Trend Detail Enhancement
 
-### Step 5: Update Dashboard Layout
+Update `src/pages/TrendDetail.tsx`:
+- Add a "Related Predictions" section below the existing trend data
+- Shows Kalshi markets that match the trend's entity name or mapped ticker
+- Helps users see if the market agrees or disagrees with the social signal
 
-Add the BlindspotRadar card to `Index.tsx`, positioned prominently in the KPI area or as a standalone section below the scanner status.
+### Step 6: AI Chat Integration
 
-### Step 6: Trends Page Filter
+Update `supabase/functions/chat-assistant/index.ts`:
+- Before responding, fetch relevant Kalshi markets based on the user's trending tickers
+- Add prediction market data to the AI context
+- System prompt instructions for generating combined reports:
 
-Add a "Blindspots" toggle to `Trends.tsx` that filters to `blindspot_score >= 60`.
+```
+## Prediction Market Signals
+| Market | Probability | Volume | Closes |
+|--------|-------------|--------|--------|
+| Will CPI exceed 3% in March? | 72% Yes | $1.2M | Mar 15 |
+| Will Fed cut rates in Q1? | 34% Yes | $890K | Mar 31 |
 
-### Step 7: Enhance AI Chat
+## Social + Prediction Overlap:
+- Starbucks trending (160K views) + "Will SBUX beat Q1 earnings?" at 65% Yes
+- Consumer spending signals align with CPI prediction markets
+```
 
-Update `chat-assistant/index.ts` system prompt to:
-- Include blindspot scores in the context data
-- Add instructions for generating blindspot reports
-- Recognize queries about "hidden", "blindspot", "under the radar", "overlooked" stocks
+### Step 7: Navigation Update
+
+- Add "Predictions" to the sidebar with a chart icon
+- Add `/predictions` route to App.tsx
 
 ---
 
 ## Technical Details
 
-### Blindspot Scoring Function (`src/lib/scoring.ts`)
+### Kalshi API (No Auth Required)
+
+The public endpoints we will use:
+- `GET /trade-api/v2/events` -- List events with optional filters
+- `GET /trade-api/v2/events/{event_ticker}` -- Get specific event
+- `GET /trade-api/v2/markets` -- List markets
+- `GET /trade-api/v2/markets/{ticker}` -- Get specific market
+- `GET /trade-api/v2/markets/{ticker}/orderbook` -- Get orderbook
+
+Base URL: `https://api.elections.kalshi.com/trade-api/v2`
+
+All endpoints are public and require no API keys. The edge function proxies these to avoid CORS issues.
+
+### Trend-to-Prediction Matching Logic
 
 ```typescript
-const WELL_KNOWN_TICKERS = [
-  "AAPL", "NKE", "SBUX", "AMZN", "GOOGL", "META", "MSFT", "TSLA"
-];
-
-function calculateBlindspotScore(input: {
-  score: number;           // existing confidence score
-  ticker?: string;
-  exchange?: string;
-  companyName?: string;
-  totalLikes: number;
-  videoCount: number;
-  hoursOld: number;
-}): { blindspotScore: number; reason: string }
+function findRelatedMarkets(
+  trendEntity: string,
+  tickers: string[],
+  kalshiEvents: KalshiEvent[]
+): KalshiEvent[] {
+  const searchTerms = [
+    trendEntity.toLowerCase(),
+    ...tickers.map(t => t.toLowerCase())
+  ];
+  return kalshiEvents.filter(event =>
+    searchTerms.some(term =>
+      event.title.toLowerCase().includes(term) ||
+      event.sub_title?.toLowerCase().includes(term)
+    )
+  );
+}
 ```
 
-### Database Migration
-```sql
-ALTER TABLE trend_items ADD COLUMN blindspot_score integer DEFAULT 0;
-```
+### File Changes Summary
 
-### Files Modified
-- `src/lib/scoring.ts` -- Add blindspot scoring function
-- `src/hooks/useScan.ts` -- Calculate and store blindspot score during scans
-- `supabase/functions/scheduled-scan/index.ts` -- Same for automated scans
-- `src/components/BlindspotRadar.tsx` -- New component
-- `src/pages/Index.tsx` -- Add BlindspotRadar to dashboard
-- `src/pages/Trends.tsx` -- Add blindspot filter toggle
-- `supabase/functions/chat-assistant/index.ts` -- Enhanced system prompt with blindspot context
-- `src/hooks/useTrends.ts` -- Support blindspot filtering
-- Database migration for the new column
+**New Files:**
+- `supabase/functions/kalshi-markets/index.ts` -- Edge function proxying Kalshi API
+- `src/pages/Predictions.tsx` -- Predictions page
+- `src/hooks/useKalshiMarkets.ts` -- Data fetching hooks
+- `src/components/PredictionCard.tsx` -- Dashboard prediction card
+
+**Modified Files:**
+- `src/components/AppSidebar.tsx` -- Add "Predictions" nav item
+- `src/App.tsx` -- Add `/predictions` route
+- `src/pages/TrendDetail.tsx` -- Add related predictions section
+- `src/pages/Index.tsx` -- Add PredictionCard to dashboard
+- `supabase/functions/chat-assistant/index.ts` -- Add Kalshi context to AI
+- `supabase/config.toml` -- Register kalshi-markets function
+
+### No Database Changes Required
+
+Kalshi data is fetched in real-time and cached client-side via React Query. No new tables are needed since we are reading public market data, not storing it.
 
