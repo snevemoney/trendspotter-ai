@@ -1,92 +1,167 @@
 
+# Replace Mock Data with Real Production Pipeline
 
-# Bulk Keyword Seeding System
+## Overview
 
-Currently, keywords are added one at a time through the Settings page. To maximize data coverage, we'll add a massive pre-built keyword library and a bulk-import mechanism.
+Currently, the entire scan pipeline is simulated: random brands are picked from a hardcoded list, fake engagement numbers are generated, and ticker mapping uses a static lookup table. This plan replaces all of that with:
 
----
-
-## What You'll Get
-
-- A curated library of **1,000+ keywords** organized by category (beauty, fashion, tech, food, fitness, finance, home, travel, entertainment, health, etc.)
-- A **"Seed Keywords"** button on the Settings page that bulk-inserts hundreds of keywords in one click
-- A **bulk paste/import** feature where you can paste a large list of keywords (one per line) and add them all at once
-- Categories displayed as toggleable groups so you can enable/disable entire categories
+1. **Real TikTok video data** via RapidAPI (TikTok Scraper API)
+2. **AI-powered entity extraction** from real video captions using Gemini
+3. **AI-powered ticker mapping** that dynamically identifies parent companies and stock tickers for any brand
 
 ---
 
-## Keyword Categories (1,000+ total)
+## What Changes
 
-Each category will contain 50-150 keywords covering:
+### 1. New Edge Function: `tiktok-search` (real TikTok data)
 
-1. **Beauty / Skincare** -- brand names, product types, viral terms ("glass skin", "slugging", "skin barrier")
-2. **Fashion / Apparel** -- brand names, trend terms ("quiet luxury", "mob wife aesthetic", "capsule wardrobe")
-3. **Tech / Gadgets** -- product names, brand names ("AirPods", "iPad", "Samsung", "mechanical keyboard")
-4. **Food / Beverage** -- viral food brands, trends ("protein coffee", "cottage cheese", "baked oats")
-5. **Fitness / Wellness** -- supplements, equipment, trends ("creatine", "walking pad", "cold plunge")
-6. **Home / Decor** -- viral home products ("LED lights", "cloud couch", "Stanley cup organizer")
-7. **Finance / Investing** -- stock terms, fintech ("dividend stocks", "Robinhood", "FIRE movement")
-8. **Travel** -- travel gear, destinations, hacks ("packing cubes", "airport hack", "hotel hack")
-9. **Entertainment** -- streaming, gaming, pop culture ("Netflix", "BookTok", "vinyl records")
-10. **Health / Supplements** -- wellness brands, ingredients ("magnesium", "ashwagandha", "gut health")
-11. **Baby / Parenting** -- viral parenting products ("Snoo", "baby monitor", "toddler hack")
-12. **Pet** -- pet brands and viral products ("Farmer's Dog", "pet camera", "dog enrichment")
-13. **Signal Phrases** -- cross-category viral phrases ("restock alert", "run don't walk", "sold out", "back in stock", "tiktok made me buy", "dupe alert", "holy grail", "game changer")
+A new backend function that calls the RapidAPI TikTok Scraper to search videos by keyword and return real video data (captions, likes, comments, shares, author, URL, posted date).
+
+- Endpoint: `POST /functions/v1/tiktok-search`
+- Input: `{ keyword: string, count: number }`
+- Output: normalized array of video objects with real engagement data
+- Uses `RAPIDAPI_KEY` secret (user will need to provide)
+
+### 2. New Edge Function: `extract-entities` (AI entity extraction)
+
+Replaces the hardcoded brand extraction. Takes an array of video captions and uses Gemini 2.5 Flash to extract brand/product entities with confidence scores.
+
+- Endpoint: `POST /functions/v1/extract-entities`
+- Input: `{ captions: string[] }`
+- Output: `{ entities: [{ text, type, confidence, captionIndex }] }`
+- Uses `LOVABLE_API_KEY` (already configured)
+
+### 3. New Edge Function: `map-ticker` (AI ticker mapping)
+
+Replaces the hardcoded BRANDS lookup. Takes a brand/company name and uses Gemini to identify the publicly-traded parent company, ticker symbol, and exchange.
+
+- Endpoint: `POST /functions/v1/map-ticker`
+- Input: `{ entities: string[] }`
+- Output: `{ mappings: [{ entity, company, ticker, exchange, confidence, reasoning }] }`
+- Uses `LOVABLE_API_KEY` (already configured)
+
+### 4. Rewrite `src/hooks/useScan.ts` (client-side scan)
+
+Replace `generateMockVideos()` and `getBrandCompanyMatch()` calls with:
+1. Call `tiktok-search` edge function to get real videos
+2. Insert real videos into the `videos` table
+3. Call `extract-entities` to pull brands/products from real captions
+4. Call `map-ticker` to dynamically map extracted entities to stock tickers
+5. Create/update trend_items and company_matches with real data
+6. The scoring pipeline (`calculateTrendScore`, `calculateBlindspotScore`) stays the same -- it already works on real metrics
+
+### 5. Rewrite `supabase/functions/scheduled-scan/index.ts` (server-side cron scan)
+
+Same changes as useScan.ts but server-side:
+- Replace inline mock data generation with calls to `tiktok-search`, `extract-entities`, and `map-ticker`
+- Remove the duplicated BRANDS, PRODUCTS, CAPTION_TEMPLATES, AUTHORS arrays
+- Keep the keyword rotation and cycle management logic
+
+### 6. Clean up `src/lib/mock-data.ts`
+
+- Keep the BRANDS array as a **cache/fallback** for known brand-to-ticker mappings (fast lookups without AI call)
+- Remove `generateMockVideos()`, `CAPTION_TEMPLATES`, `AUTHORS`, `PRODUCTS` 
+- Rename `getBrandCompanyMatch()` to `getCachedBrandMatch()` to clarify it's a fast cache lookup, with the AI mapper as the primary source
+
+---
+
+## Files to Create
+
+| File | Purpose |
+|------|---------|
+| `supabase/functions/tiktok-search/index.ts` | RapidAPI TikTok video search |
+| `supabase/functions/extract-entities/index.ts` | AI entity extraction from captions |
+| `supabase/functions/map-ticker/index.ts` | AI brand-to-ticker mapping |
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/hooks/useScan.ts` | Replace mock pipeline with real API calls |
+| `supabase/functions/scheduled-scan/index.ts` | Replace mock pipeline with real API calls |
+| `src/lib/mock-data.ts` | Remove mock generators, keep brand cache |
+
+## Files Unchanged
+
+- `src/lib/scoring.ts` -- scoring logic works on real metrics already
+- `src/lib/prediction-alerts.ts` -- already uses real Kalshi API
+- `src/components/TrendPredictionOverlap.tsx` -- already reads from DB
+- All UI components -- they read from the database, not from mock data
+
+---
+
+## Secret Required
+
+The user will need to provide a **RapidAPI key** with a TikTok Scraper API subscription. Common options:
+
+- "TikTok Scraper" by Premium APIs (rapidapi.com/premium-apis-oanor/api/tiktok-scraper20) -- has Search Videos endpoint
+- "TikTok API" by omarmhaimdat (rapidapi.com/omarmhaimdat/api/tiktok-api6) -- well-established
+
+The key will be stored as `RAPIDAPI_KEY` in backend secrets.
 
 ---
 
 ## Technical Details
 
-### Files to Create
-
-- **`src/lib/keyword-library.ts`** -- Contains the full keyword library as a structured constant: `Record<string, string[]>` mapping category names to keyword arrays. This keeps the data in-code with zero database overhead until the user seeds them.
-
-### Files to Modify
-
-- **`src/hooks/useKeywords.ts`** -- Add a new `useBulkAddKeywords()` mutation that accepts an array of strings and batch-inserts them (in chunks of 100 to stay within query limits), skipping duplicates.
-
-- **`src/pages/Settings.tsx`** -- Add three new UI elements to the Keywords card:
-  1. **"Seed Library" button** -- Opens a dialog showing keyword categories with checkboxes. User selects categories, clicks "Add Selected", and all keywords from those categories are bulk-inserted.
-  2. **"Bulk Paste" button** -- Opens a dialog with a textarea where users can paste keywords (one per line) and import them all at once.
-  3. **Keyword count badge** -- Shows total count (e.g., "1,247 keywords") so users can see how many they have.
-
-- **`src/lib/mock-data.ts`** -- Expand the BRANDS array to include more brands that correspond to the new keyword categories (adding ~80 more brand-to-company mappings with tickers), so scans against these new keywords produce richer company match data.
-
-### Bulk Insert Logic
+### TikTok Search Edge Function
 
 ```text
-useBulkAddKeywords():
-  1. Accept string[] of keywords
-  2. Fetch existing keywords for user (to deduplicate)
-  3. Filter out duplicates
-  4. Chunk remaining into batches of 100
-  5. Insert each batch with incrementing sort_order
-  6. Show toast: "Added X new keywords (Y duplicates skipped)"
-  7. Invalidate keywords query
+Input: { keyword: "restock alert", count: 10 }
+
+1. Call RapidAPI TikTok search endpoint:
+   GET https://tiktok-scraper20.p.rapidapi.com/search/video
+   ?query={keyword}&count={count}
+   Headers: X-RapidAPI-Key, X-RapidAPI-Host
+
+2. Normalize response into:
+   [{
+     videoId, url, caption, author,
+     postedAt, likes, comments, shares
+   }]
+
+3. Return normalized array
 ```
 
-### Seed Dialog Flow
+### AI Entity Extraction
 
 ```text
-User clicks "Seed Library"
-  -> Dialog opens with category list + checkboxes
-  -> Each category shows count (e.g., "Beauty / Skincare (127)")
-  -> "Select All" / "Deselect All" toggle
-  -> "Add Selected" button
-  -> Bulk insert runs
-  -> Dialog closes, keyword list refreshes
+Input: ["OMG the Stanley tumbler is back!", "CeraVe SA cleanser review"]
+
+Prompt to Gemini 2.5 Flash:
+  "Extract brand/product entities from these video captions.
+   Return as JSON: [{ text, type: 'brand'|'product', confidence }]"
+
+Uses tool calling for structured output.
 ```
 
-### Expanded Brand Mappings
+### AI Ticker Mapping
 
-The BRANDS array in mock-data.ts will grow from 20 to ~100 entries, adding companies like:
-- Tech: Samsung (005930.KS), Sony (SONY), Google/Alphabet (GOOGL), Meta (META), Amazon (AMZN)
-- Fashion: Adidas (ADS.DE), Under Armour (UAA), Gap (GAP), H&M (HM-B.ST), Zara/Inditex (ITX.MC)
-- Food: Coca-Cola (KO), PepsiCo (PEP), Chipotle (CMG), McDonald's (MCD)
-- Fitness: Peloton (PTON), Planet Fitness (PLNT), Garmin (GRMN)
-- Home: Wayfair (W), Restoration Hardware (RH), Williams-Sonoma (WSM)
-- Finance: Robinhood (HOOD), Coinbase (COIN), SoFi (SOFI)
-- And many more...
+```text
+Input: ["Stanley", "CeraVe"]
 
-This ensures that when scans run against the new keywords, the system generates more company matches with real tickers, which in turn produces more Kalshi prediction overlap signals.
+Prompt to Gemini 2.5 Flash:
+  "For each brand, identify the publicly-traded parent company,
+   stock ticker, and exchange. Return as JSON."
 
+Uses tool calling for structured output.
+Includes a local cache check first (BRANDS array) to avoid
+unnecessary AI calls for known brands.
+```
+
+### Updated Scan Flow
+
+```text
+User clicks "Run Scan"
+  1. Get next keyword from rotation
+  2. Create scan record (status: running)
+  3. Call tiktok-search(keyword, count=10)  -- REAL videos
+  4. Insert videos into DB
+  5. Call extract-entities(captions)         -- AI extraction
+  6. For each unique entity:
+     a. Check local BRANDS cache first
+     b. If not cached, call map-ticker(entity) -- AI mapping
+  7. Create/update trend_items with real scores
+  8. Create company_matches with real/AI mappings
+  9. Complete scan, invalidate queries
+  10. Check prediction alerts (unchanged)
+```
