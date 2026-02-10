@@ -39,43 +39,53 @@ export function useScan() {
   const [scanning, setScanning] = useState(false);
   const queryClient = useQueryClient();
 
-  const runScan = useCallback(async () => {
+  const runScan = useCallback(async (keywordOverride?: string) => {
     if (!user || scanning) return;
     setScanning(true);
 
     try {
-      // Get next keyword in rotation
-      const { data: keywords } = await supabase
-        .from("keywords")
-        .select("*")
-        .eq("user_id", user.id)
-        .eq("active", true)
-        .order("sort_order");
+      let keywordText: string;
+      let keywordId: string | null = null;
 
-      if (!keywords?.length) {
-        toast({ title: "No keywords", description: "Add keywords in Settings first.", variant: "destructive" });
-        return;
+      if (keywordOverride) {
+        // Use the override directly — no DB lookup needed
+        keywordText = keywordOverride;
+      } else {
+        // Get next keyword in rotation
+        const { data: keywords } = await supabase
+          .from("keywords")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("active", true)
+          .order("sort_order");
+
+        if (!keywords?.length) {
+          toast({ title: "No keywords", description: "Add keywords in Settings first.", variant: "destructive" });
+          return;
+        }
+
+        const { data: lastScan } = await supabase
+          .from("scans")
+          .select("keyword_text")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(1);
+
+        const lastKeyword = lastScan?.[0]?.keyword_text;
+        const lastIndex = keywords.findIndex((k) => k.keyword === lastKeyword);
+        const nextIndex = (lastIndex + 1) % keywords.length;
+        const keyword = keywords[nextIndex];
+        keywordText = keyword.keyword;
+        keywordId = keyword.id;
       }
-
-      const { data: lastScan } = await supabase
-        .from("scans")
-        .select("keyword_text")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      const lastKeyword = lastScan?.[0]?.keyword_text;
-      const lastIndex = keywords.findIndex((k) => k.keyword === lastKeyword);
-      const nextIndex = (lastIndex + 1) % keywords.length;
-      const keyword = keywords[nextIndex];
 
       // Create scan record
       const { data: scan, error: scanError } = await supabase
         .from("scans")
         .insert({
           user_id: user.id,
-          keyword_id: keyword.id,
-          keyword_text: keyword.keyword,
+          keyword_id: keywordId,
+          keyword_text: keywordText,
           mode: "recent" as const,
           status: "running" as const,
         })
@@ -86,7 +96,7 @@ export function useScan() {
 
       // Step 1: Fetch real TikTok videos
       const { data: tiktokData, error: tiktokError } = await supabase.functions.invoke("tiktok-search", {
-        body: { keyword: keyword.keyword, count: 10 },
+        body: { keyword: keywordText, count: 10 },
       });
 
       if (tiktokError) throw new Error(`TikTok search failed: ${tiktokError.message}`);
@@ -102,7 +112,7 @@ export function useScan() {
           completed_at: new Date().toISOString(),
         }).eq("id", scan.id);
 
-        toast({ title: "Scan complete", description: `No videos found for "${keyword.keyword}".` });
+        toast({ title: "Scan complete", description: `No videos found for "${keywordText}".` });
         return;
       }
 
@@ -118,7 +128,7 @@ export function useScan() {
         likes: v.likes,
         comments: v.comments,
         shares: v.shares,
-        keyword: keyword.keyword,
+        keyword: keywordText,
       }));
 
       const { data: insertedVideos, error: videoError } = await supabase
@@ -232,7 +242,7 @@ export function useScan() {
               user_id: user.id,
               primary_entity: entity.text,
               entity_type: "brand" as const,
-              summary: `${entity.text} trending on TikTok via "${keyword.keyword}" keyword.`,
+              summary: `${entity.text} trending on TikTok via "${keywordText}" keyword.`,
               score,
               label,
               signal_phrases: signals,
@@ -241,7 +251,7 @@ export function useScan() {
               total_likes: video.likes,
               total_comments: video.comments,
               total_shares: video.shares,
-              source_keyword: keyword.keyword,
+              source_keyword: keywordText,
             } as any)
             .select()
             .single();
@@ -309,7 +319,7 @@ export function useScan() {
       }
 
       toast({
-        title: `Scan complete: "${keyword.keyword}"`,
+        title: `Scan complete: "${keywordText}"`,
         description: `Found ${videos.length} videos with ${uniqueBrands.length} brands detected.`,
       });
     } catch (err: any) {
