@@ -77,21 +77,30 @@ export function useKalshiMarkets(filters?: { search?: string; eventTicker?: stri
   });
 }
 
-export function useRelatedPredictions(entity?: string, tickers?: string[]) {
-  const searchTerms = [entity, ...(tickers || [])].filter(Boolean);
-  const searchQuery = searchTerms.join(" ");
-
+export function useRelatedPredictions(entity?: string, tickers?: string[], companyName?: string) {
   return useQuery({
-    queryKey: ["kalshi-related", entity, tickers],
+    queryKey: ["kalshi-related", entity, tickers, companyName],
     queryFn: () =>
       fetchKalshi({
         action: "events",
-        search: searchQuery,
-        limit: "10",
+        search: entity || "",
+        limit: "20",
         status: "open",
       }),
-    enabled: !!searchQuery,
+    enabled: !!entity,
     staleTime: 5 * 60 * 1000,
-    select: (data) => (data?.events || []) as KalshiEvent[],
+    select: (data) => {
+      const events = (data?.events || []) as KalshiEvent[];
+      const terms = [entity, ...(tickers || []), companyName]
+        .filter((t): t is string => !!t && t.length >= 2)
+        .map((t) => t.toLowerCase());
+
+      return events
+        .filter((e) => {
+          const combined = `${e.title} ${e.sub_title || ""}`.toLowerCase();
+          return terms.some((term) => combined.includes(term));
+        })
+        .slice(0, 5);
+    },
   });
 }
