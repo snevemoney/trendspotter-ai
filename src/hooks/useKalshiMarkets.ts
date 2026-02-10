@@ -91,16 +91,7 @@ export function useRelatedPredictions(entity?: string, tickers?: string[], compa
     staleTime: 5 * 60 * 1000,
     select: (data) => {
       const events = (data?.events || []) as KalshiEvent[];
-      const terms = [entity, ...(tickers || []), companyName]
-        .filter((t): t is string => !!t && t.length >= 2)
-        .map((t) => t.toLowerCase());
-
-      return events
-        .filter((e) => {
-          const combined = `${e.title} ${e.sub_title || ""}`.toLowerCase();
-          return terms.some((term) => combined.includes(term));
-        })
-        .slice(0, 5);
+      return events.slice(0, 5);
     },
   });
 }
