@@ -133,7 +133,8 @@ export default function TrendDetail() {
   const match = trend?.company_matches?.[0];
   const { data: relatedPredictions } = useRelatedPredictions(
     trend?.primary_entity || "",
-    match?.ticker ? [match.ticker] : []
+    match?.ticker ? [match.ticker] : [],
+    match?.company_name
   );
 
   if (isLoading) {
