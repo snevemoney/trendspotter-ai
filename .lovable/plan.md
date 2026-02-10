@@ -1,167 +1,134 @@
 
-# Replace Mock Data with Real Production Pipeline
 
-## Overview
+# Add "Why This Matters" Context to Trend-Prediction Overlaps
 
-Currently, the entire scan pipeline is simulated: random brands are picked from a hardcoded list, fake engagement numbers are generated, and ticker mapping uses a static lookup table. This plan replaces all of that with:
+## Problem
 
-1. **Real TikTok video data** via RapidAPI (TikTok Scraper API)
-2. **AI-powered entity extraction** from real video captions using Gemini
-3. **AI-powered ticker mapping** that dynamically identifies parent companies and stock tickers for any brand
+Currently, when a trend matches a prediction market, users see the raw numbers (trend score, blindspot score, Kalshi probability) but no explanation of **why** the keyword/trend relates to the prediction or how to interpret it as a potential trade signal.
 
----
+## Solution
 
-## What Changes
+Add AI-generated "connection rationale" that explains:
+- Why the social trend (keyword) is relevant to the prediction market
+- What the prediction market is betting on and how the trend supports/contradicts it
+- A plain-English thesis statement (e.g., "TikTok virality for CeraVe skincare suggests rising consumer demand, which aligns with a Kalshi market betting L'Oreal stock rises above $450 this quarter")
 
-### 1. New Edge Function: `tiktok-search` (real TikTok data)
+## Changes
 
-A new backend function that calls the RapidAPI TikTok Scraper to search videos by keyword and return real video data (captions, likes, comments, shares, author, URL, posted date).
+### 1. New Edge Function: `explain-overlap`
 
-- Endpoint: `POST /functions/v1/tiktok-search`
-- Input: `{ keyword: string, count: number }`
-- Output: normalized array of video objects with real engagement data
-- Uses `RAPIDAPI_KEY` secret (user will need to provide)
+A lightweight AI call (Gemini 2.5 Flash) that takes a trend entity + keyword + prediction market title and returns a 2-3 sentence explanation.
 
-### 2. New Edge Function: `extract-entities` (AI entity extraction)
+- Input: `{ brand, keyword, trendScore, marketTitle, probability }`
+- Output: `{ explanation: string }` -- a short human-readable thesis
+- File: `supabase/functions/explain-overlap/index.ts`
 
-Replaces the hardcoded brand extraction. Takes an array of video captions and uses Gemini 2.5 Flash to extract brand/product entities with confidence scores.
+### 2. Update `TrendPredictionOverlap.tsx` (Dashboard Widget)
 
-- Endpoint: `POST /functions/v1/extract-entities`
-- Input: `{ captions: string[] }`
-- Output: `{ entities: [{ text, type, confidence, captionIndex }] }`
-- Uses `LOVABLE_API_KEY` (already configured)
+- Add an expandable section under each overlap item that shows the AI explanation
+- Lazy-load the explanation when user clicks/expands (to avoid unnecessary AI calls)
+- Cache explanations in React Query so they don't re-fetch
 
-### 3. New Edge Function: `map-ticker` (AI ticker mapping)
+### 3. Update `TrendDetail.tsx` (Related Predictions Section)
 
-Replaces the hardcoded BRANDS lookup. Takes a brand/company name and uses Gemini to identify the publicly-traded parent company, ticker symbol, and exchange.
+- Add a "Why this matters" blurb under each related prediction card
+- Show how the scanned keyword connects the social trend to the market
+- Include the keyword that triggered the trend discovery
 
-- Endpoint: `POST /functions/v1/map-ticker`
-- Input: `{ entities: string[] }`
-- Output: `{ mappings: [{ entity, company, ticker, exchange, confidence, reasoning }] }`
-- Uses `LOVABLE_API_KEY` (already configured)
+### 4. Store keyword origin on trend_items
 
-### 4. Rewrite `src/hooks/useScan.ts` (client-side scan)
+Currently `trend_items.summary` contains `"...via 'keyword' keyword"` as a string, but there's no structured `source_keyword` field. We'll add a `source_keyword` column so the UI can explicitly show which keyword surfaced the trend.
 
-Replace `generateMockVideos()` and `getBrandCompanyMatch()` calls with:
-1. Call `tiktok-search` edge function to get real videos
-2. Insert real videos into the `videos` table
-3. Call `extract-entities` to pull brands/products from real captions
-4. Call `map-ticker` to dynamically map extracted entities to stock tickers
-5. Create/update trend_items and company_matches with real data
-6. The scoring pipeline (`calculateTrendScore`, `calculateBlindspotScore`) stays the same -- it already works on real metrics
-
-### 5. Rewrite `supabase/functions/scheduled-scan/index.ts` (server-side cron scan)
-
-Same changes as useScan.ts but server-side:
-- Replace inline mock data generation with calls to `tiktok-search`, `extract-entities`, and `map-ticker`
-- Remove the duplicated BRANDS, PRODUCTS, CAPTION_TEMPLATES, AUTHORS arrays
-- Keep the keyword rotation and cycle management logic
-
-### 6. Clean up `src/lib/mock-data.ts`
-
-- Keep the BRANDS array as a **cache/fallback** for known brand-to-ticker mappings (fast lookups without AI call)
-- Remove `generateMockVideos()`, `CAPTION_TEMPLATES`, `AUTHORS`, `PRODUCTS` 
-- Rename `getBrandCompanyMatch()` to `getCachedBrandMatch()` to clarify it's a fast cache lookup, with the AI mapper as the primary source
-
----
-
-## Files to Create
-
-| File | Purpose |
-|------|---------|
-| `supabase/functions/tiktok-search/index.ts` | RapidAPI TikTok video search |
-| `supabase/functions/extract-entities/index.ts` | AI entity extraction from captions |
-| `supabase/functions/map-ticker/index.ts` | AI brand-to-ticker mapping |
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `src/hooks/useScan.ts` | Replace mock pipeline with real API calls |
-| `supabase/functions/scheduled-scan/index.ts` | Replace mock pipeline with real API calls |
-| `src/lib/mock-data.ts` | Remove mock generators, keep brand cache |
-
-## Files Unchanged
-
-- `src/lib/scoring.ts` -- scoring logic works on real metrics already
-- `src/lib/prediction-alerts.ts` -- already uses real Kalshi API
-- `src/components/TrendPredictionOverlap.tsx` -- already reads from DB
-- All UI components -- they read from the database, not from mock data
-
----
-
-## Secret Required
-
-The user will need to provide a **RapidAPI key** with a TikTok Scraper API subscription. Common options:
-
-- "TikTok Scraper" by Premium APIs (rapidapi.com/premium-apis-oanor/api/tiktok-scraper20) -- has Search Videos endpoint
-- "TikTok API" by omarmhaimdat (rapidapi.com/omarmhaimdat/api/tiktok-api6) -- well-established
-
-The key will be stored as `RAPIDAPI_KEY` in backend secrets.
+- Migration: `ALTER TABLE trend_items ADD COLUMN source_keyword text;`
+- Update `useScan.ts` to populate this field when creating trends
+- Display in TrendDetail and overlap widgets
 
 ---
 
 ## Technical Details
 
-### TikTok Search Edge Function
+### Edge Function: `explain-overlap`
 
 ```text
-Input: { keyword: "restock alert", count: 10 }
-
-1. Call RapidAPI TikTok search endpoint:
-   GET https://tiktok-scraper20.p.rapidapi.com/search/video
-   ?query={keyword}&count={count}
-   Headers: X-RapidAPI-Key, X-RapidAPI-Host
-
-2. Normalize response into:
-   [{
-     videoId, url, caption, author,
-     postedAt, likes, comments, shares
-   }]
-
-3. Return normalized array
-```
-
-### AI Entity Extraction
-
-```text
-Input: ["OMG the Stanley tumbler is back!", "CeraVe SA cleanser review"]
-
 Prompt to Gemini 2.5 Flash:
-  "Extract brand/product entities from these video captions.
-   Return as JSON: [{ text, type: 'brand'|'product', confidence }]"
+"You are a stock research analyst. A social media trend for '{brand}' 
+was discovered via the keyword '{keyword}' with engagement score {trendScore}/100.
+A prediction market asks: '{marketTitle}' with {probability}% 'Yes' probability.
 
-Uses tool calling for structured output.
+In 2-3 sentences, explain:
+1. How the social trend connects to this prediction
+2. What the market is implying
+3. Whether the trend supports or contradicts the market's view
+
+Be specific and actionable. No disclaimers."
 ```
 
-### AI Ticker Mapping
+### UI: Overlap Widget (dashboard)
+
+Each overlap item gets a collapsible "Why?" button that fetches the explanation on demand:
 
 ```text
-Input: ["Stanley", "CeraVe"]
-
-Prompt to Gemini 2.5 Flash:
-  "For each brand, identify the publicly-traded parent company,
-   stock ticker, and exchange. Return as JSON."
-
-Uses tool calling for structured output.
-Includes a local cache check first (BRANDS array) to avoid
-unnecessary AI calls for known brands.
+[TSLA] Tesla    T:82 B:45 K:71%  [Score: 78]
+  v "Why this matters"
+  -----------------------------------------------
+  TikTok keyword "ev charging" surfaced Tesla content 
+  with viral engagement (82/100). Kalshi's market 
+  "Will TSLA close above $280?" at 71% Yes aligns 
+  with the social momentum suggesting sustained 
+  consumer interest in EV infrastructure.
+  -----------------------------------------------
 ```
 
-### Updated Scan Flow
+### UI: Trend Detail Page
+
+Under each Related Prediction card, add:
 
 ```text
-User clicks "Run Scan"
-  1. Get next keyword from rotation
-  2. Create scan record (status: running)
-  3. Call tiktok-search(keyword, count=10)  -- REAL videos
-  4. Insert videos into DB
-  5. Call extract-entities(captions)         -- AI extraction
-  6. For each unique entity:
-     a. Check local BRANDS cache first
-     b. If not cached, call map-ticker(entity) -- AI mapping
-  7. Create/update trend_items with real scores
-  8. Create company_matches with real/AI mappings
-  9. Complete scan, invalidate queries
-  10. Check prediction alerts (unchanged)
+[Related Prediction Card]
+"Will AAPL stock rise 5% in Q1?" - 73% Yes
+  
+  Discovered via keyword: "iphone restock"
+  
+  This trend was found because TikTok users searching 
+  "iphone restock" are showing high demand signals for 
+  Apple products. The prediction market's 73% probability 
+  suggests traders also expect upward price movement, 
+  reinforcing the social signal.
 ```
+
+### Data Flow
+
+```text
+1. User runs scan with keyword "skincare routine"
+2. AI extracts "CeraVe" as brand entity
+3. AI maps CeraVe -> L'Oreal (OR.PA)
+4. trend_items row created with source_keyword = "skincare routine"
+5. Dashboard overlap widget matches CeraVe trend to Kalshi market
+6. User clicks "Why?" -> calls explain-overlap edge function
+7. AI returns: "The keyword 'skincare routine' surfaced CeraVe 
+   with high engagement, suggesting rising consumer demand for 
+   L'Oreal's dermatology brands. The Kalshi market betting 
+   L'Oreal rises 3% aligns with this demand signal."
+```
+
+## Files to Create
+
+| File | Purpose |
+|------|---------|
+| `supabase/functions/explain-overlap/index.ts` | AI explanation generator |
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/components/TrendPredictionOverlap.tsx` | Add expandable "Why?" for each overlap |
+| `src/pages/TrendDetail.tsx` | Add explanation under Related Predictions |
+| `src/hooks/useScan.ts` | Populate `source_keyword` on new trends |
+| `supabase/config.toml` | Register new edge function |
+
+## Database Migration
+
+```sql
+ALTER TABLE trend_items ADD COLUMN source_keyword text;
+```
+
