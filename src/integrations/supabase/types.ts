@@ -512,6 +512,48 @@ export type Database = {
         }
         Relationships: []
       }
+      weekly_reports: {
+        Row: {
+          created_at: string
+          id: string
+          stats: Json | null
+          status: string
+          summary: string | null
+          top_overlaps: Json | null
+          top_trends: Json | null
+          updated_at: string
+          user_id: string
+          week_end: string
+          week_start: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          stats?: Json | null
+          status?: string
+          summary?: string | null
+          top_overlaps?: Json | null
+          top_trends?: Json | null
+          updated_at?: string
+          user_id: string
+          week_end: string
+          week_start: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          stats?: Json | null
+          status?: string
+          summary?: string | null
+          top_overlaps?: Json | null
+          top_trends?: Json | null
+          updated_at?: string
+          user_id?: string
+          week_end?: string
+          week_start?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

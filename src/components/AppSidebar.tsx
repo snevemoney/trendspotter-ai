@@ -10,6 +10,7 @@ import {
   MessageSquare,
   BarChart3,
   Bell,
+  FileText,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { title: "Watchlist", icon: Eye, path: "/watchlist" },
   { title: "Daily Digest", icon: Calendar, path: "/daily-digest" },
   { title: "Weekly Digest", icon: CalendarDays, path: "/weekly-digest" },
+  { title: "Weekly Report", icon: FileText, path: "/weekly-report" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
