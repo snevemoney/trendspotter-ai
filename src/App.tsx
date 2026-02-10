@@ -11,6 +11,7 @@ import TrendDetail from "./pages/TrendDetail";
 import Watchlist from "./pages/Watchlist";
 import DailyDigest from "./pages/DailyDigest";
 import WeeklyDigest from "./pages/WeeklyDigest";
+import WeeklyReportPage from "./pages/WeeklyReport";
 import Settings from "./pages/Settings";
 import Chat from "./pages/Chat";
 import Predictions from "./pages/Predictions";
@@ -55,6 +56,7 @@ function AppRoutes() {
       <Route path="/watchlist" element={<ProtectedRoute><Watchlist /></ProtectedRoute>} />
       <Route path="/daily-digest" element={<ProtectedRoute><DailyDigest /></ProtectedRoute>} />
       <Route path="/weekly-digest" element={<ProtectedRoute><WeeklyDigest /></ProtectedRoute>} />
+      <Route path="/weekly-report" element={<ProtectedRoute><WeeklyReportPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
       <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
       <Route path="/predictions" element={<ProtectedRoute><Predictions /></ProtectedRoute>} />
