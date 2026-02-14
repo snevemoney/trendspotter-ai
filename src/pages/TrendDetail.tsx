@@ -389,8 +389,14 @@ export default function TrendDetail() {
                         <FreshnessIndicator date={video.posted_at} />
                       )}
                     </div>
+                    {(!video.url || video.url.includes("/video/undefined") || !video.url.startsWith("https://www.tiktok.com/@")) && (
+                      <p className="text-[10px] text-amber-500 mt-1.5 flex items-center gap-1">
+                        <EyeOff className="h-3 w-3" />
+                        Video link unavailable — may have been removed or expired
+                      </p>
+                    )}
                   </div>
-                  {video.url && (
+                  {video.url && video.url.startsWith("https://www.tiktok.com/@") && !video.url.includes("/video/undefined") ? (
                     <a
                       href={video.url}
                       target="_blank"
@@ -401,7 +407,7 @@ export default function TrendDetail() {
                         <ExternalLink className="h-3.5 w-3.5" />
                       </Button>
                     </a>
-                  )}
+                  ) : null}
                 </div>
               ))}
             </CardContent>
