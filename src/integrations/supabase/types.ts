@@ -132,6 +132,7 @@ export type Database = {
           is_current: boolean | null
           keyword: string
           sort_order: number | null
+          tier: Database["public"]["Enums"]["keyword_tier"]
           user_id: string
         }
         Insert: {
@@ -142,6 +143,7 @@ export type Database = {
           is_current?: boolean | null
           keyword: string
           sort_order?: number | null
+          tier?: Database["public"]["Enums"]["keyword_tier"]
           user_id: string
         }
         Update: {
@@ -152,6 +154,7 @@ export type Database = {
           is_current?: boolean | null
           keyword?: string
           sort_order?: number | null
+          tier?: Database["public"]["Enums"]["keyword_tier"]
           user_id?: string
         }
         Relationships: []
@@ -566,6 +569,7 @@ export type Database = {
     }
     Enums: {
       entity_type: "brand" | "product"
+      keyword_tier: "high" | "medium" | "low"
       scan_mode: "recent" | "popular"
       scan_status: "pending" | "running" | "completed" | "failed"
       trend_label: "low" | "medium" | "high"
@@ -699,6 +703,7 @@ export const Constants = {
   public: {
     Enums: {
       entity_type: ["brand", "product"],
+      keyword_tier: ["high", "medium", "low"],
       scan_mode: ["recent", "popular"],
       scan_status: ["pending", "running", "completed", "failed"],
       trend_label: ["low", "medium", "high"],
