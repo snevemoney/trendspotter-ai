@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/AppLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -71,6 +73,7 @@ function KPICard({
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const { data: stats } = useDashboardStats();
   const { data: trends, isLoading } = useTrends();
   const { runScan, scanning } = useScan();
@@ -83,11 +86,23 @@ export default function Dashboard() {
 
   const activeKeywords = keywords?.filter((k) => k.active) ?? [];
 
-  const handleRunScan = () => {
-    if (activeKeywords.length > 0) {
-      runScan();
-    } else {
+  const handleRunScan = async () => {
+    // Re-check active keywords from server to avoid stale cache
+    const { data: freshKeywords } = await supabase
+      .from("keywords")
+      .select("id")
+      .eq("user_id", user?.id ?? "")
+      .eq("active", true)
+      .limit(1);
+
+    if (!freshKeywords?.length) {
       setShowQuickScan(true);
+      return;
+    }
+    try {
+      await runScan();
+    } catch (error) {
+      console.error("Error during scan:", error);
     }
   };
 
