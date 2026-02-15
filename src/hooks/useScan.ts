@@ -38,12 +38,19 @@ export function useScan() {
         }));
       }
 
-      // Scan all keywords in parallel
-      const results = await Promise.allSettled(
-        keywordsToScan.map(({ keyword, keywordId }) =>
-          scanSingleKeyword(user.id, keyword, keywordId)
-        )
-      );
+      // Scan keywords in batches to respect API rate limits
+      const CONCURRENCY = 3;
+      const results: PromiseSettledResult<{ videosFound: number; brandsDetected: number }>[] = [];
+
+      for (let i = 0; i < keywordsToScan.length; i += CONCURRENCY) {
+        const batch = keywordsToScan.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.allSettled(
+          batch.map(({ keyword, keywordId }) =>
+            scanSingleKeyword(user.id, keyword, keywordId)
+          )
+        );
+        results.push(...batchResults);
+      }
 
       // Aggregate results
       let totalVideos = 0;
