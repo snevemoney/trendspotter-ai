@@ -10,6 +10,7 @@ import { scanSingleKeyword } from "@/lib/scan-keyword";
 export function useScan() {
   const { user } = useAuth();
   const [scanning, setScanning] = useState(false);
+  const [cycleCount, setCycleCount] = useState(0);
   const queryClient = useQueryClient();
 
   const runScan = useCallback(async (keywordOverride?: string) => {
@@ -32,10 +33,24 @@ export function useScan() {
 
         if (!keywords?.length) return;
 
-        keywordsToScan = keywords.map((k) => ({
+        const currentCycle = cycleCount;
+        
+        // Filter by tier: high=every cycle, medium=every 2nd, low=every 3rd
+        const eligible = keywords.filter((k) => {
+          if (k.tier === "high") return true;
+          if (k.tier === "medium") return currentCycle % 2 === 0;
+          return currentCycle % 3 === 0; // low tier
+        });
+
+        // Always scan at least high-tier; if none eligible, scan all high
+        const toScan = eligible.length > 0 ? eligible : keywords.filter((k) => k.tier === "high");
+
+        keywordsToScan = toScan.map((k) => ({
           keyword: k.keyword,
           keywordId: k.id,
         }));
+
+        setCycleCount((c) => c + 1);
       }
 
       // Scan keywords in batches to respect API rate limits
